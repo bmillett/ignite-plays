@@ -81,6 +81,51 @@ function shortenEnd(
   return { x2: x1 + dx * t, y2: y1 + dy * t };
 }
 
+// Lighten a hex color by mixing it toward white by `amount` (0–1)
+function lightenColor(hex: string, amount: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
+}
+
+// Render an arrow as outline + foreground line pair for visual clarity
+function arrowLines(
+  key: string,
+  x1: number, y1: number, x2: number, y2: number,
+  stroke: string,
+  strokeWidth: number,
+  opacity: number,
+  markerEnd: string | undefined,
+  extraProps: Record<string, string | number | undefined> = {}
+): React.ReactNode[] {
+  const outlineColor = lightenColor(stroke, 0.55);
+  const outlineWidth = strokeWidth + 0.6;
+  return [
+    // Outline (slightly wider, lighter, no arrowhead)
+    <line
+      key={`${key}-outline`}
+      x1={x1} y1={y1} x2={x2} y2={y2}
+      stroke={outlineColor}
+      strokeWidth={outlineWidth}
+      opacity={opacity * 0.7}
+      {...(extraProps.strokeDasharray ? { strokeDasharray: extraProps.strokeDasharray as string } : {})}
+    />,
+    // Foreground arrow
+    <line
+      key={key}
+      x1={x1} y1={y1} x2={x2} y2={y2}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+      opacity={opacity}
+      markerEnd={markerEnd}
+      {...extraProps}
+    />,
+  ];
+}
+
 // ─── Default staging positions ────────────────────────────────────────────────
 
 export function defaultStepPositions(): StepPositions {
@@ -181,32 +226,15 @@ export default function FieldCanvas({
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
-            arrows.push(
-              <line
-                key={`ao-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-                stroke={COLOR_OFFENSE}
-                strokeWidth={isHighlighted ? 1.4 : 0.8}
-                opacity={opacity}
-                markerEnd={isCurrent ? "url(#arrow-offense)" : undefined}
-              />
-            );
+            arrows.push(...arrowLines(`ao-${s}-${i}`, p.x, p.y, end.x2, end.y2,
+              COLOR_OFFENSE, isHighlighted ? 1.4 : 0.8, opacity,
+              isCurrent ? "url(#arrow-offense)" : undefined));
           }
-          // Branch arrow (view mode, current step only)
           if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
-            arrows.push(
-              <line
-                key={`ao-branch-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-                stroke={COLOR_OFFENSE}
-                strokeWidth={0.8}
-                strokeDasharray="1.5 1"
-                opacity={0.85}
-                markerEnd="url(#arrow-offense)"
-              />
-            );
+            arrows.push(...arrowLines(`ao-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
+              COLOR_OFFENSE, 0.8, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
           }
         });
 
@@ -216,32 +244,15 @@ export default function FieldCanvas({
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
-            arrows.push(
-              <line
-                key={`ad-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-                stroke={COLOR_DEFENSE}
-                strokeWidth={isHighlighted ? 1.4 : 0.8}
-                opacity={opacity}
-                markerEnd={isCurrent ? "url(#arrow-defense)" : undefined}
-              />
-            );
+            arrows.push(...arrowLines(`ad-${s}-${i}`, p.x, p.y, end.x2, end.y2,
+              COLOR_DEFENSE, isHighlighted ? 1.4 : 0.8, opacity,
+              isCurrent ? "url(#arrow-defense)" : undefined));
           }
-          // Branch arrow
           if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
-            arrows.push(
-              <line
-                key={`ad-branch-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-                stroke={COLOR_DEFENSE}
-                strokeWidth={0.8}
-                strokeDasharray="1.5 1"
-                opacity={0.85}
-                markerEnd="url(#arrow-defense)"
-              />
-            );
+            arrows.push(...arrowLines(`ad-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
+              COLOR_DEFENSE, 0.8, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
           }
         });
 
@@ -250,17 +261,10 @@ export default function FieldCanvas({
           const c = to.disc;
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
-            arrows.push(
-              <line
-                key={`adisc-${s}`}
-                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-                stroke={COLOR_ARROW_DISC}
-                strokeWidth={isCurrent ? 0.5 : 0.4}
-                strokeDasharray={isCurrent ? "3 1.2" : undefined}
-                opacity={opacity}
-                markerEnd={isCurrent ? "url(#arrow-disc)" : undefined}
-              />
-            );
+            arrows.push(...arrowLines(`adisc-${s}`, p.x, p.y, end.x2, end.y2,
+              COLOR_ARROW_DISC, isCurrent ? 0.5 : 0.4, opacity,
+              isCurrent ? "url(#arrow-disc)" : undefined,
+              isCurrent ? { strokeDasharray: "3 1.2" } : {}));
           }
         }
       }
@@ -275,31 +279,14 @@ export default function FieldCanvas({
       const p = prev.offense[i];
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
-        arrows.push(
-          <line
-            key={`ao-${i}`}
-            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-            stroke={COLOR_OFFENSE}
-            strokeWidth={cur.highlight ? 1.4 : 0.8}
-            markerEnd="url(#arrow-offense)"
-          />
-        );
+        arrows.push(...arrowLines(`ao-${i}`, p.x, p.y, end.x2, end.y2,
+          COLOR_OFFENSE, cur.highlight ? 1.4 : 0.8, 1, "url(#arrow-offense)"));
       }
-      // Branch arrow in edit mode
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
         const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
-        arrows.push(
-          <line
-            key={`ao-branch-${i}`}
-            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-            stroke={COLOR_OFFENSE}
-            strokeWidth={0.8}
-            strokeDasharray="1.5 1"
-            opacity={0.85}
-            markerEnd="url(#arrow-offense)"
-          />
-        );
+        arrows.push(...arrowLines(`ao-branch-${i}`, p.x, p.y, end.x2, end.y2,
+          COLOR_OFFENSE, 0.8, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
       }
     });
 
@@ -307,31 +294,14 @@ export default function FieldCanvas({
       const p = prev.defense[i];
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
-        arrows.push(
-          <line
-            key={`ad-${i}`}
-            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-            stroke={COLOR_DEFENSE}
-            strokeWidth={cur.highlight ? 1.4 : 0.8}
-            markerEnd="url(#arrow-defense)"
-          />
-        );
+        arrows.push(...arrowLines(`ad-${i}`, p.x, p.y, end.x2, end.y2,
+          COLOR_DEFENSE, cur.highlight ? 1.4 : 0.8, 1, "url(#arrow-defense)"));
       }
-      // Branch arrow in edit mode
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
         const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
-        arrows.push(
-          <line
-            key={`ad-branch-${i}`}
-            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-            stroke={COLOR_DEFENSE}
-            strokeWidth={0.8}
-            strokeDasharray="1.5 1"
-            opacity={0.85}
-            markerEnd="url(#arrow-defense)"
-          />
-        );
+        arrows.push(...arrowLines(`ad-branch-${i}`, p.x, p.y, end.x2, end.y2,
+          COLOR_DEFENSE, 0.8, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
       }
     });
 
@@ -340,16 +310,8 @@ export default function FieldCanvas({
       const c = current.disc;
       if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
         const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
-        arrows.push(
-          <line
-            key="ad-disc"
-            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
-            stroke={COLOR_ARROW_DISC}
-            strokeWidth={0.5}
-            strokeDasharray="3 1.2"
-            markerEnd="url(#arrow-disc)"
-          />
-        );
+        arrows.push(...arrowLines("ad-disc", p.x, p.y, end.x2, end.y2,
+          COLOR_ARROW_DISC, 0.5, 1, "url(#arrow-disc)", { strokeDasharray: "3 1.2" }));
       }
     }
 
