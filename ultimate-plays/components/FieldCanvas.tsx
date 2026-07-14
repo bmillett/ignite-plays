@@ -60,6 +60,27 @@ function isOnField(x: number, y: number): boolean {
   return x >= 0 && x <= VIEWBOX_W && y >= 0 && y <= FIELD_H;
 }
 
+// Returns true if the player has moved a meaningful distance (> 1 yard)
+function hasMoved(x1: number, y1: number, x2: number, y2: number): boolean {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  return Math.sqrt(dx * dx + dy * dy) > 1;
+}
+
+// Shorten the endpoint of a line so it stops `margin` units before (x2, y2)
+function shortenEnd(
+  x1: number, y1: number,
+  x2: number, y2: number,
+  margin: number
+): { x2: number; y2: number } {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len <= margin) return { x2, y2 }; // too short to shorten
+  const t = (len - margin) / len;
+  return { x2: x1 + dx * t, y2: y1 + dy * t };
+}
+
 // ─── Default staging positions ────────────────────────────────────────────────
 
 export function defaultStepPositions(): StepPositions {
@@ -157,11 +178,13 @@ export default function FieldCanvas({
         from.offense.forEach((p, i) => {
           const c = to.offense[i];
           const isHighlighted = isCurrent && c.highlight;
-          if (isOnField(p.x, p.y) && isOnField(c.x, c.y)) {
+          const moved = hasMoved(p.x, p.y, c.x, c.y);
+          if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
+            const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
             arrows.push(
               <line
                 key={`ao-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={c.x} y2={c.y}
+                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
                 stroke={COLOR_OFFENSE}
                 strokeWidth={isHighlighted ? 1.4 : 0.8}
                 opacity={opacity}
@@ -170,11 +193,13 @@ export default function FieldCanvas({
             );
           }
           // Branch arrow (view mode, current step only)
-          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)) {
+          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
+              && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
+            const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
             arrows.push(
               <line
                 key={`ao-branch-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={c.branch.x} y2={c.branch.y}
+                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
                 stroke={COLOR_OFFENSE}
                 strokeWidth={0.8}
                 strokeDasharray="1.5 1"
@@ -188,11 +213,13 @@ export default function FieldCanvas({
         from.defense.forEach((p, i) => {
           const c = to.defense[i];
           const isHighlighted = isCurrent && c.highlight;
-          if (isOnField(p.x, p.y) && isOnField(c.x, c.y)) {
+          const moved = hasMoved(p.x, p.y, c.x, c.y);
+          if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
+            const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
             arrows.push(
               <line
                 key={`ad-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={c.x} y2={c.y}
+                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
                 stroke={COLOR_DEFENSE}
                 strokeWidth={isHighlighted ? 1.4 : 0.8}
                 opacity={opacity}
@@ -201,11 +228,13 @@ export default function FieldCanvas({
             );
           }
           // Branch arrow
-          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)) {
+          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
+              && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
+            const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
             arrows.push(
               <line
                 key={`ad-branch-${s}-${i}`}
-                x1={p.x} y1={p.y} x2={c.branch.x} y2={c.branch.y}
+                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
                 stroke={COLOR_DEFENSE}
                 strokeWidth={0.8}
                 strokeDasharray="1.5 1"
@@ -219,11 +248,12 @@ export default function FieldCanvas({
         {
           const p = from.disc;
           const c = to.disc;
-          if (isOnField(p.x, p.y) && isOnField(c.x, c.y)) {
+          if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
+            const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
             arrows.push(
               <line
                 key={`adisc-${s}`}
-                x1={p.x} y1={p.y} x2={c.x} y2={c.y}
+                x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
                 stroke={COLOR_ARROW_DISC}
                 strokeWidth={isCurrent ? 0.5 : 0.4}
                 strokeDasharray={isCurrent ? "3 1.2" : undefined}
@@ -243,11 +273,12 @@ export default function FieldCanvas({
 
     current.offense.forEach((cur, i) => {
       const p = prev.offense[i];
-      if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y)) {
+      if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
+        const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
         arrows.push(
           <line
             key={`ao-${i}`}
-            x1={p.x} y1={p.y} x2={cur.x} y2={cur.y}
+            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
             stroke={COLOR_OFFENSE}
             strokeWidth={cur.highlight ? 1.4 : 0.8}
             markerEnd="url(#arrow-offense)"
@@ -255,11 +286,13 @@ export default function FieldCanvas({
         );
       }
       // Branch arrow in edit mode
-      if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)) {
+      if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
+          && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
+        const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
         arrows.push(
           <line
             key={`ao-branch-${i}`}
-            x1={p.x} y1={p.y} x2={cur.branch.x} y2={cur.branch.y}
+            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
             stroke={COLOR_OFFENSE}
             strokeWidth={0.8}
             strokeDasharray="1.5 1"
@@ -272,11 +305,12 @@ export default function FieldCanvas({
 
     current.defense.forEach((cur, i) => {
       const p = prev.defense[i];
-      if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y)) {
+      if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
+        const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
         arrows.push(
           <line
             key={`ad-${i}`}
-            x1={p.x} y1={p.y} x2={cur.x} y2={cur.y}
+            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
             stroke={COLOR_DEFENSE}
             strokeWidth={cur.highlight ? 1.4 : 0.8}
             markerEnd="url(#arrow-defense)"
@@ -284,11 +318,13 @@ export default function FieldCanvas({
         );
       }
       // Branch arrow in edit mode
-      if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)) {
+      if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
+          && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
+        const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
         arrows.push(
           <line
             key={`ad-branch-${i}`}
-            x1={p.x} y1={p.y} x2={cur.branch.x} y2={cur.branch.y}
+            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
             stroke={COLOR_DEFENSE}
             strokeWidth={0.8}
             strokeDasharray="1.5 1"
@@ -302,11 +338,12 @@ export default function FieldCanvas({
     {
       const p = prev.disc;
       const c = current.disc;
-      if (isOnField(p.x, p.y) && isOnField(c.x, c.y)) {
+      if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
+        const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
         arrows.push(
           <line
             key="ad-disc"
-            x1={p.x} y1={p.y} x2={c.x} y2={c.y}
+            x1={p.x} y1={p.y} x2={end.x2} y2={end.y2}
             stroke={COLOR_ARROW_DISC}
             strokeWidth={0.5}
             strokeDasharray="3 1.2"
