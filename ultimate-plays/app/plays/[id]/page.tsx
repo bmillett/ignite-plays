@@ -1,9 +1,8 @@
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import AnimationPlayer from "@/components/AnimationPlayer";
-import type { StepPositions } from "@/components/FieldCanvas";
+import { getPlay } from "@/lib/getPlay";
 
 export const metadata = { title: "View Play" };
 
@@ -11,39 +10,13 @@ interface ViewPlayPageProps {
   params: Promise<{ id: string }>;
 }
 
-interface PlayData {
-  id: number;
-  name: string;
-  description: string | null;
-  createdByEmail: string;
-  updatedAt: string;
-  tags: string[];
-  steps: StepPositions[];
-}
-
 export default async function ViewPlayPage({ params }: ViewPlayPageProps) {
   const { id } = await params;
+  const playId = parseInt(id, 10);
+  if (isNaN(playId)) notFound();
 
-  // Forward the session cookie so the API route can authenticate
-  const cookieStore = await cookies();
-  const cookieHeader = cookieStore
-    .getAll()
-    .map((c) => `${c.name}=${c.value}`)
-    .join("; ");
-
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"}/api/plays/${id}`,
-    {
-      headers: { cookie: cookieHeader },
-      cache: "no-store",
-    }
-  );
-
-  if (!res.ok) {
-    notFound();
-  }
-
-  const play = (await res.json()) as PlayData;
+  const play = await getPlay(playId);
+  if (!play) notFound();
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">

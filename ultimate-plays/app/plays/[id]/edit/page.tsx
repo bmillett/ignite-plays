@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
 import NavBar from "@/components/NavBar";
 import PlayEditor, { InitialPlay } from "@/components/PlayEditor";
+import { getPlay } from "@/lib/getPlay";
 
 export const metadata = { title: "Edit Play" };
 
@@ -11,29 +11,11 @@ interface EditPlayPageProps {
 
 export default async function EditPlayPage({ params }: EditPlayPageProps) {
   const { id } = await params;
+  const playId = parseInt(id, 10);
+  if (isNaN(playId)) notFound();
 
-  // Forward the session cookie so the API route can authenticate
-  const cookieStore = await cookies();
-  const cookieHeader = cookieStore.getAll()
-    .map((c) => `${c.name}=${c.value}`)
-    .join("; ");
-
-  const res = await fetch(
-    `${process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"}/api/plays/${id}`,
-    {
-      headers: { cookie: cookieHeader },
-      cache: "no-store",
-    }
-  );
-
-  if (!res.ok) {
-    notFound();
-  }
-
-  const play = (await res.json()) as InitialPlay & {
-    createdByEmail: string;
-    updatedAt: string;
-  };
+  const play = await getPlay(playId);
+  if (!play) notFound();
 
   const initialPlay: InitialPlay = {
     id: play.id,
