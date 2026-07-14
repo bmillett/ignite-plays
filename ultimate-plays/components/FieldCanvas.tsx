@@ -225,7 +225,8 @@ export default function FieldCanvas({
                 key={`adisc-${s}`}
                 x1={p.x} y1={p.y} x2={c.x} y2={c.y}
                 stroke={COLOR_ARROW_DISC}
-                strokeWidth={0.8}
+                strokeWidth={isCurrent ? 0.5 : 0.4}
+                strokeDasharray={isCurrent ? "3 1.2" : undefined}
                 opacity={opacity}
                 markerEnd={isCurrent ? "url(#arrow-disc)" : undefined}
               />
@@ -307,7 +308,8 @@ export default function FieldCanvas({
             key="ad-disc"
             x1={p.x} y1={p.y} x2={c.x} y2={c.y}
             stroke={COLOR_ARROW_DISC}
-            strokeWidth={0.8}
+            strokeWidth={0.5}
+            strokeDasharray="3 1.2"
             markerEnd="url(#arrow-disc)"
           />
         );
@@ -376,11 +378,11 @@ export default function FieldCanvas({
       >
         {/* ── Defs: arrowhead markers + highlight glow filter ── */}
         <defs>
+          {/* Player arrowheads — standard size */}
           {(
             [
               ["arrow-offense", COLOR_OFFENSE],
               ["arrow-defense", COLOR_DEFENSE],
-              ["arrow-disc", COLOR_ARROW_DISC],
             ] as const
           ).map(([id, color]) => (
             <marker
@@ -396,6 +398,18 @@ export default function FieldCanvas({
               <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
             </marker>
           ))}
+          {/* Disc arrowhead — open/hollow chevron, distinct from player solid triangles */}
+          <marker
+            id="arrow-disc"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="4"
+            markerHeight="4"
+            orient="auto-start-reverse"
+          >
+            <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke={COLOR_ARROW_DISC} strokeWidth="1.8" strokeLinejoin="round" />
+          </marker>
           {/* Glow filter for highlighted players */}
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="0.8" result="blur" />
