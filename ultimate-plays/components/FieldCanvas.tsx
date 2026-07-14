@@ -538,8 +538,8 @@ export default function FieldCanvas({
         </g>
       </svg>
 
-      {/* ── Notes panel (view mode only) ── */}
-      {mode === "view" && current.note && (
+      {/* ── Notes panel (view mode only) — always rendered to prevent layout shift ── */}
+      {mode === "view" && (
         <div style={{
           background: "#f8fafc",
           borderTop: "1px solid #e2e8f0",
@@ -550,11 +550,16 @@ export default function FieldCanvas({
           lineHeight: 1.5,
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
+          minHeight: "42px",       // fixed height — controls never shift
         }}>
-          <span style={{ fontWeight: 600, color: "#334155", marginRight: 6 }}>
-            Step {currentStep + 1}:
-          </span>
-          {current.note}
+          {current.note ? (
+            <>
+              <span style={{ fontWeight: 600, color: "#334155", marginRight: 6 }}>
+                Step {currentStep + 1}:
+              </span>
+              {current.note}
+            </>
+          ) : null}
         </div>
       )}
 
