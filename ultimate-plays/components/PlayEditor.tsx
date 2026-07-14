@@ -407,6 +407,29 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
           {/* Divider */}
           <hr className="border-gray-200" />
 
+          {/* Step note */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              Step {currentStep + 1} Note
+            </label>
+            <textarea
+              value={steps[currentStep].note ?? ""}
+              onChange={(e) => {
+                setIsDirty(true);
+                const note = e.target.value;
+                setSteps((prev) =>
+                  prev.map((s, i) => i === currentStep ? { ...s, note } : s)
+                );
+              }}
+              placeholder="Optional coaching note shown during playback…"
+              rows={2}
+              className="w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+            />
+          </div>
+
+          {/* Divider */}
+          <hr className="border-gray-200" />
+
           {/* Player controls — highlight + branch (only when step > 0 so arrows exist) */}
           {currentStep > 0 && (
             <div>

@@ -16,6 +16,7 @@ export type StepPositions = {
   offense: PlayerPosition[]; // length 7
   defense: PlayerPosition[]; // length 7
   disc: DiscPosition;
+  note?: string;             // optional per-step coaching note
 };
 
 interface FieldCanvasProps {
@@ -359,11 +360,13 @@ export default function FieldCanvas({
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
+  const viewH = mode === "view" ? FIELD_H : VIEWBOX_H;
+
   return (
     <div style={{ width: "100%" }}>
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
+        viewBox={`0 0 ${VIEWBOX_W} ${viewH}`}
         width="100%"
         height="auto"
         style={{ display: "block", userSelect: "none" }}
@@ -427,18 +430,22 @@ export default function FieldCanvas({
           </g>
         ))}
 
-        {/* ── Staging area ── */}
-        <rect x={0} y={FIELD_H} width={VIEWBOX_W} height={VIEWBOX_H - FIELD_H} fill="#1e293b" />
-        <text
-          x={VIEWBOX_W / 2}
-          y={VIEWBOX_H - 1.5}
-          textAnchor="middle"
-          fill="#94a3b8"
-          fontSize={2.2}
-          fontFamily="system-ui, sans-serif"
-        >
-          Drag players onto the field
-        </text>
+        {/* ── Staging area (edit mode only) ── */}
+        {mode === "edit" && (
+          <>
+            <rect x={0} y={FIELD_H} width={VIEWBOX_W} height={VIEWBOX_H - FIELD_H} fill="#1e293b" />
+            <text
+              x={VIEWBOX_W / 2}
+              y={VIEWBOX_H - 1.5}
+              textAnchor="middle"
+              fill="#94a3b8"
+              fontSize={2.2}
+              fontFamily="system-ui, sans-serif"
+            >
+              Drag players onto the field
+            </text>
+          </>
+        )}
 
         {/* ── Route arrows (rendered below players) ── */}
         {renderArrows()}
@@ -530,6 +537,26 @@ export default function FieldCanvas({
           <circle r={DISC_R} fill="white" stroke={COLOR_DISC_STROKE} strokeWidth={0.5} />
         </g>
       </svg>
+
+      {/* ── Notes panel (view mode only) ── */}
+      {mode === "view" && current.note && (
+        <div style={{
+          background: "#f8fafc",
+          borderTop: "1px solid #e2e8f0",
+          padding: "8px 12px",
+          fontFamily: "system-ui, sans-serif",
+          fontSize: "13px",
+          color: "#475569",
+          lineHeight: 1.5,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}>
+          <span style={{ fontWeight: 600, color: "#334155", marginRight: 6 }}>
+            Step {currentStep + 1}:
+          </span>
+          {current.note}
+        </div>
+      )}
 
       {/* Pulse keyframe injected once */}
       <style>{`
