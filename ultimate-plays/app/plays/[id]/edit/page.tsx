@@ -3,7 +3,7 @@ import NavBar from "@/components/NavBar";
 import PlayEditor, { InitialPlay } from "@/components/PlayEditor";
 import { getPlay } from "@/lib/getPlay";
 
-export const metadata = { title: "Edit Play" };
+export const metadata = { title: "Edit Play" }; // → "Edit Play — 🥏 Ignite Plays"
 
 interface EditPlayPageProps {
   params: Promise<{ id: string }>;

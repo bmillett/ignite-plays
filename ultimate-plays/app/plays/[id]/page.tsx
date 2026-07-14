@@ -4,7 +4,7 @@ import NavBar from "@/components/NavBar";
 import AnimationPlayer from "@/components/AnimationPlayer";
 import { getPlay } from "@/lib/getPlay";
 
-export const metadata = { title: "View Play" };
+export const metadata = { title: "View Play" }; // → "View Play — 🥏 Ignite Plays"
 
 interface ViewPlayPageProps {
   params: Promise<{ id: string }>;

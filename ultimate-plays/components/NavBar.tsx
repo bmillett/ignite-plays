@@ -27,7 +27,7 @@ export default function NavBar() {
         href="/"
         className="text-lg font-bold tracking-tight text-gray-900 hover:text-green-700 transition-colors shrink-0"
       >
-        🥏 Ultimate Plays
+        🥏 Ignite Plays
       </Link>
 
       {/* Right: nav actions */}

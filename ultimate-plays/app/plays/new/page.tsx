@@ -1,7 +1,7 @@
 import NavBar from "@/components/NavBar";
 import PlayEditor from "@/components/PlayEditor";
 
-export const metadata = { title: "New Play" };
+export const metadata = { title: "New Play" }; // → "New Play — 🥏 Ignite Plays"
 
 export default function NewPlayPage() {
   return (
