@@ -79,6 +79,16 @@ export default function AnimationPlayer({
     setCurrentStep(Number(e.target.value));
   }
 
+  function handleStepBack() {
+    setIsPlaying(false);
+    setCurrentStep((prev) => Math.max(0, prev - 1));
+  }
+
+  function handleStepForward() {
+    setIsPlaying(false);
+    setCurrentStep((prev) => Math.min(lastStep, prev + 1));
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {/* Field */}
@@ -123,9 +133,36 @@ export default function AnimationPlayer({
             )}
           </button>
 
+          {/* Step back */}
+          <button
+            onClick={handleStepBack}
+            disabled={currentStep === 0}
+            title="Previous step"
+            className="flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+              <path d="M10 3L5 8l5 5V3z" />
+              <rect x="3" y="3" width="2" height="10" rx="1" />
+            </svg>
+          </button>
+
+          {/* Step forward */}
+          <button
+            onClick={handleStepForward}
+            disabled={currentStep === lastStep}
+            title="Next step"
+            className="flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+              <path d="M6 3l5 5-5 5V3z" />
+              <rect x="11" y="3" width="2" height="10" rx="1" />
+            </svg>
+          </button>
+
           {/* Reset */}
           <button
             onClick={handleReset}
+            title="Reset to start"
             className="flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 active:bg-gray-100 transition-colors"
           >
             <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5">
