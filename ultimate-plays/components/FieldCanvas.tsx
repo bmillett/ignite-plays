@@ -91,16 +91,6 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// Derive the outline marker id from the foreground marker id
-// e.g. "url(#arrow-offense)" → "url(#arrow-offense-outline)"
-// Returns undefined for disc arrows (no outline on disc)
-function outlineMarker(markerEnd: string | undefined): string | undefined {
-  if (!markerEnd) return undefined;
-  if (markerEnd.includes("disc")) return undefined; // disc arrow has no outline
-  // "url(#arrow-offense)" → "url(#arrow-offense-outline)"
-  return markerEnd.slice(0, -1) + "-outline)";
-}
-
 // Render an arrow as outline + foreground line pair for visual clarity
 function arrowLines(
   key: string,
@@ -114,14 +104,13 @@ function arrowLines(
   const outlineColor = lightenColor(stroke, 0.55);
   const outlineWidth = strokeWidth + 0.6;
   return [
-    // Outline — wider, lighter, matching arrowhead
+    // Outline — wider, lighter, no arrowhead (avoids sizing/alignment issues)
     <line
       key={`${key}-outline`}
       x1={x1} y1={y1} x2={x2} y2={y2}
       stroke={outlineColor}
       strokeWidth={outlineWidth}
       opacity={opacity * 0.8}
-      markerEnd={outlineMarker(markerEnd)}
       {...(extraProps.strokeDasharray ? { strokeDasharray: extraProps.strokeDasharray as string } : {})}
     />,
     // Foreground arrow
@@ -386,45 +375,28 @@ export default function FieldCanvas({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
-        {/* ── Defs: arrowhead markers + outline variants + highlight glow filter ── */}
+        {/* ── Defs: arrowhead markers + highlight glow filter ── */}
         <defs>
-          {/* Player arrowheads — foreground (solid filled) + outline (larger, lighter) */}
+          {/* Player arrowheads */}
           {(
             [
               ["arrow-offense", COLOR_OFFENSE],
               ["arrow-defense", COLOR_DEFENSE],
             ] as const
-          ).map(([id, color]) => {
-            const outlineColor = lightenColor(color, 0.55);
-            return (
-              <>
-                <marker
-                  key={id}
-                  id={id}
-                  viewBox="0 0 10 10"
-                  refX="9"
-                  refY="5"
-                  markerWidth="4"
-                  markerHeight="4"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
-                </marker>
-                <marker
-                  key={`${id}-outline`}
-                  id={`${id}-outline`}
-                  viewBox="-1 -1 12 12"
-                  refX="9"
-                  refY="5"
-                  markerWidth="5"
-                  markerHeight="5"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 0 L 10 5 L 0 10 z" fill={outlineColor} />
-                </marker>
-              </>
-            );
-          })}
+          ).map(([id, color]) => (
+            <marker
+              key={id}
+              id={id}
+              viewBox="0 0 10 10"
+              refX="9"
+              refY="5"
+              markerWidth="4"
+              markerHeight="4"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
+            </marker>
+          ))}
           {/* Disc arrowhead — open chevron foreground + outline */}
           <marker
             id="arrow-disc"
