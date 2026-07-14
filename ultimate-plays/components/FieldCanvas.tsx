@@ -91,7 +91,9 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// Render an arrow as outline + foreground line pair for visual clarity
+// Render an arrow as outline + foreground line pair for visual clarity.
+// The outline is slightly wider and lighter. It is trimmed short of the end so
+// it doesn't protrude past the arrowhead. Disc arrows skip the outline entirely.
 function arrowLines(
   key: string,
   x1: number, y1: number, x2: number, y2: number,
@@ -101,19 +103,8 @@ function arrowLines(
   markerEnd: string | undefined,
   extraProps: Record<string, string | number | undefined> = {}
 ): React.ReactNode[] {
-  const outlineColor = lightenColor(stroke, 0.55);
-  const outlineWidth = strokeWidth + 0.6;
-  return [
-    // Outline — wider, lighter, no arrowhead (avoids sizing/alignment issues)
-    <line
-      key={`${key}-outline`}
-      x1={x1} y1={y1} x2={x2} y2={y2}
-      stroke={outlineColor}
-      strokeWidth={outlineWidth}
-      opacity={opacity * 0.8}
-      {...(extraProps.strokeDasharray ? { strokeDasharray: extraProps.strokeDasharray as string } : {})}
-    />,
-    // Foreground arrow
+  const isDisc = markerEnd?.includes("disc") ?? !markerEnd;
+  const foreground = (
     <line
       key={key}
       x1={x1} y1={y1} x2={x2} y2={y2}
@@ -122,7 +113,29 @@ function arrowLines(
       opacity={opacity}
       markerEnd={markerEnd}
       {...extraProps}
+    />
+  );
+
+  if (isDisc) {
+    // Disc: no outline, just the foreground line
+    return [foreground];
+  }
+
+  // Shorten outline end by ~1.5 units so it stops behind the arrowhead
+  const outlineEnd = shortenEnd(x1, y1, x2, y2, 1.5);
+  const outlineColor = lightenColor(stroke, 0.55);
+  const outlineWidth = strokeWidth + 0.6;
+
+  return [
+    <line
+      key={`${key}-outline`}
+      x1={x1} y1={y1} x2={outlineEnd.x2} y2={outlineEnd.y2}
+      stroke={outlineColor}
+      strokeWidth={outlineWidth}
+      opacity={opacity * 0.8}
+      {...(extraProps.strokeDasharray ? { strokeDasharray: extraProps.strokeDasharray as string } : {})}
     />,
+    foreground,
   ];
 }
 
