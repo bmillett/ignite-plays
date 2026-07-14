@@ -11,17 +11,27 @@ interface AnimationPlayerProps {
   tags: string[];
 }
 
+const SPEEDS = [
+  { label: "Slow",   ms: 1800 },
+  { label: "Normal", ms: 1000 },
+  { label: "Fast",   ms: 450  },
+] as const;
+
+type SpeedLabel = typeof SPEEDS[number]["label"];
+
 export default function AnimationPlayer({
   steps,
   playId,
 }: AnimationPlayerProps) {
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [speed, setSpeed] = useState<SpeedLabel>("Normal");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const lastStep = steps.length - 1;
+  const intervalMs = SPEEDS.find((s) => s.label === speed)!.ms;
 
-  // Advance step on interval while playing
+  // Advance step on interval while playing — restarts when speed changes
   useEffect(() => {
     if (!isPlaying) {
       if (intervalRef.current !== null) {
@@ -39,7 +49,7 @@ export default function AnimationPlayer({
         }
         return prev + 1;
       });
-    }, 1000);
+    }, intervalMs);
 
     return () => {
       if (intervalRef.current !== null) {
@@ -47,7 +57,7 @@ export default function AnimationPlayer({
         intervalRef.current = null;
       }
     };
-  }, [isPlaying, lastStep]);
+  }, [isPlaying, lastStep, intervalMs]);
 
   function handlePlayPause() {
     if (currentStep >= lastStep && !isPlaying) {
@@ -88,8 +98,8 @@ export default function AnimationPlayer({
           className="w-full accent-blue-600 h-2 cursor-pointer"
         />
 
-        {/* Buttons + step indicator row */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        {/* Buttons + speed + step indicator row */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {/* Play / Pause */}
           <button
             onClick={handlePlayPause}
@@ -124,6 +134,23 @@ export default function AnimationPlayer({
             </svg>
             Reset
           </button>
+
+          {/* Speed selector */}
+          <div className="flex rounded-lg border border-gray-300 overflow-hidden text-xs font-medium">
+            {SPEEDS.map((s) => (
+              <button
+                key={s.label}
+                onClick={() => setSpeed(s.label)}
+                className={`px-2.5 py-2 transition-colors ${
+                  speed === s.label
+                    ? "bg-gray-700 text-white"
+                    : "bg-white text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
 
           {/* Step indicator */}
           <span className="ml-auto text-sm text-gray-500 tabular-nums whitespace-nowrap">
