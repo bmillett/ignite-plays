@@ -93,6 +93,69 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
     [currentStep]
   );
 
+  // ─── Branch change ───────────────────────────────────────────────────────────
+
+  const handleBranchChange = useCallback(
+    (team: "offense" | "defense", playerIndex: number, x: number, y: number) => {
+      setIsDirty(true);
+      setSteps((prev) =>
+        prev.map((s, i) => {
+          if (i !== currentStep) return s;
+          const players = [...s[team]];
+          players[playerIndex] = { ...players[playerIndex], branch: { x, y } };
+          return { ...s, [team]: players };
+        })
+      );
+    },
+    [currentStep]
+  );
+
+  // ─── Toggle highlight ─────────────────────────────────────────────────────
+
+  function toggleHighlight(team: "offense" | "defense", playerIndex: number) {
+    setIsDirty(true);
+    setSteps((prev) =>
+      prev.map((s, i) => {
+        if (i !== currentStep) return s;
+        const players = [...s[team]];
+        players[playerIndex] = {
+          ...players[playerIndex],
+          highlight: !players[playerIndex].highlight,
+        };
+        return { ...s, [team]: players };
+      })
+    );
+  }
+
+  // ─── Add / remove branch ─────────────────────────────────────────────────
+
+  function addBranch(team: "offense" | "defense", playerIndex: number) {
+    setIsDirty(true);
+    setSteps((prev) =>
+      prev.map((s, i) => {
+        if (i !== currentStep) return s;
+        const players = [...s[team]];
+        const p = players[playerIndex];
+        // Place branch 8 yards to the right and 4 up from player as a starting point
+        players[playerIndex] = { ...p, branch: { x: Math.min(p.x + 8, 108), y: Math.max(p.y - 4, 2) } };
+        return { ...s, [team]: players };
+      })
+    );
+  }
+
+  function removeBranch(team: "offense" | "defense", playerIndex: number) {
+    setIsDirty(true);
+    setSteps((prev) =>
+      prev.map((s, i) => {
+        if (i !== currentStep) return s;
+        const players = [...s[team]];
+        const { branch: _removed, ...rest } = players[playerIndex];
+        players[playerIndex] = rest;
+        return { ...s, [team]: players };
+      })
+    );
+  }
+
   // ─── Step management ────────────────────────────────────────────────────────
 
   function addStep() {
@@ -194,6 +257,7 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
             currentStep={currentStep}
             mode="edit"
             onPositionChange={handlePositionChange}
+            onBranchChange={handleBranchChange}
           />
         </div>
       </div>
@@ -339,6 +403,107 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
               </button>
             </div>
           </div>
+
+          {/* Divider */}
+          <hr className="border-gray-200" />
+
+          {/* Player controls — highlight + branch (only when step > 0 so arrows exist) */}
+          {currentStep > 0 && (
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Player Options — Step {currentStep + 1}
+              </label>
+              <p className="text-xs text-gray-400 mb-2">⭐ highlight a key player · ⑂ add an optional cut</p>
+
+              {/* Offense */}
+              <div className="mb-2">
+                <p className="text-xs font-medium text-blue-600 mb-1">Offense</p>
+                <div className="space-y-1">
+                  {steps[currentStep].offense.map((p, i) => (
+                    <div key={i} className="flex items-center gap-1">
+                      <span className="w-7 text-xs font-mono text-gray-600">{p.label}</span>
+                      {/* Highlight toggle */}
+                      <button
+                        type="button"
+                        title="Highlight player"
+                        onClick={() => toggleHighlight("offense", i)}
+                        className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
+                          p.highlight
+                            ? "bg-yellow-400 text-yellow-900"
+                            : "bg-gray-100 text-gray-400 hover:bg-yellow-100"
+                        }`}
+                      >
+                        ⭐
+                      </button>
+                      {/* Branch toggle */}
+                      {p.branch ? (
+                        <button
+                          type="button"
+                          title="Remove optional cut"
+                          onClick={() => removeBranch("offense", i)}
+                          className="rounded px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 hover:bg-red-100 hover:text-red-600 transition-colors"
+                        >
+                          ⑂ remove
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          title="Add optional cut"
+                          onClick={() => addBranch("offense", i)}
+                          className="rounded px-1.5 py-0.5 text-xs bg-gray-100 text-gray-400 hover:bg-blue-100 hover:text-blue-700 transition-colors"
+                        >
+                          ⑂ add cut
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Defense */}
+              <div>
+                <p className="text-xs font-medium text-red-500 mb-1">Defense</p>
+                <div className="space-y-1">
+                  {steps[currentStep].defense.map((p, i) => (
+                    <div key={i} className="flex items-center gap-1">
+                      <span className="w-7 text-xs font-mono text-gray-600">{p.label}</span>
+                      <button
+                        type="button"
+                        title="Highlight player"
+                        onClick={() => toggleHighlight("defense", i)}
+                        className={`rounded px-1.5 py-0.5 text-xs transition-colors ${
+                          p.highlight
+                            ? "bg-yellow-400 text-yellow-900"
+                            : "bg-gray-100 text-gray-400 hover:bg-yellow-100"
+                        }`}
+                      >
+                        ⭐
+                      </button>
+                      {p.branch ? (
+                        <button
+                          type="button"
+                          title="Remove optional cut"
+                          onClick={() => removeBranch("defense", i)}
+                          className="rounded px-1.5 py-0.5 text-xs bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                        >
+                          ⑂ remove
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          title="Add optional cut"
+                          onClick={() => addBranch("defense", i)}
+                          className="rounded px-1.5 py-0.5 text-xs bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-600 transition-colors"
+                        >
+                          ⑂ add cut
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Save footer ── */}

@@ -4,7 +4,13 @@ import { useRef, useState, useCallback } from "react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type PlayerPosition = { x: number; y: number; label: string };
+export type PlayerPosition = {
+  x: number;
+  y: number;
+  label: string;
+  highlight?: boolean;           // show glowing ring + bold arrow
+  branch?: { x: number; y: number }; // optional dashed alternate route
+};
 export type DiscPosition = { x: number; y: number };
 export type StepPositions = {
   offense: PlayerPosition[]; // length 7
@@ -22,6 +28,12 @@ interface FieldCanvasProps {
     x: number,
     y: number
   ) => void;
+  onBranchChange?: (
+    team: "offense" | "defense",
+    playerIndex: number,
+    x: number,
+    y: number
+  ) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -34,6 +46,7 @@ const FIELD_H = 40;
 
 const PLAYER_R = 1.62;
 const DISC_R = 1.08;
+const HIGHLIGHT_R = 3.0; // glowing ring radius
 
 const COLOR_OFFENSE = "#3b82f6";
 const COLOR_DEFENSE = "#ef4444";
@@ -62,9 +75,11 @@ export function defaultStepPositions(): StepPositions {
 // ─── Drag state ───────────────────────────────────────────────────────────────
 
 type DragTarget =
-  | { team: "offense"; index: number }
-  | { team: "defense"; index: number }
-  | { team: "disc"; index: 0 };
+  | { team: "offense"; index: number; kind: "player" }
+  | { team: "defense"; index: number; kind: "player" }
+  | { team: "disc"; index: 0; kind: "player" }
+  | { team: "offense"; index: number; kind: "branch" }
+  | { team: "defense"; index: number; kind: "branch" };
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -73,6 +88,7 @@ export default function FieldCanvas({
   currentStep,
   mode,
   onPositionChange,
+  onBranchChange,
 }: FieldCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [drag, setDrag] = useState<DragTarget | null>(null);
@@ -100,6 +116,7 @@ export default function FieldCanvas({
     (target: DragTarget) => (e: React.MouseEvent) => {
       if (mode !== "edit") return;
       e.preventDefault();
+      e.stopPropagation();
       setDrag(target);
     },
     [mode]
@@ -109,9 +126,13 @@ export default function FieldCanvas({
     (e: React.MouseEvent<SVGSVGElement>) => {
       if (!drag || mode !== "edit") return;
       const { x, y } = clientToSvg(e.clientX, e.clientY);
-      onPositionChange?.(drag.team, drag.index, x, y);
+      if (drag.kind === "branch") {
+        onBranchChange?.(drag.team, drag.index, x, y);
+      } else {
+        onPositionChange?.(drag.team, drag.index, x, y);
+      }
     },
-    [drag, mode, clientToSvg, onPositionChange]
+    [drag, mode, clientToSvg, onPositionChange, onBranchChange]
   );
 
   const handleMouseUp = useCallback(() => {
@@ -124,8 +145,6 @@ export default function FieldCanvas({
     if (!prev) return null;
 
     if (mode === "view") {
-      // In view mode: render ghost trails for all previous transitions, full
-      // opacity only for the current transition (steps[currentStep-1] → steps[currentStep]).
       const arrows: React.ReactNode[] = [];
 
       for (let s = 1; s <= currentStep; s++) {
@@ -136,15 +155,30 @@ export default function FieldCanvas({
 
         from.offense.forEach((p, i) => {
           const c = to.offense[i];
+          const isHighlighted = isCurrent && c.highlight;
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y)) {
             arrows.push(
               <line
                 key={`ao-${s}-${i}`}
                 x1={p.x} y1={p.y} x2={c.x} y2={c.y}
                 stroke={COLOR_OFFENSE}
-                strokeWidth={0.8}
+                strokeWidth={isHighlighted ? 1.4 : 0.8}
                 opacity={opacity}
                 markerEnd={isCurrent ? "url(#arrow-offense)" : undefined}
+              />
+            );
+          }
+          // Branch arrow (view mode, current step only)
+          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)) {
+            arrows.push(
+              <line
+                key={`ao-branch-${s}-${i}`}
+                x1={p.x} y1={p.y} x2={c.branch.x} y2={c.branch.y}
+                stroke={COLOR_OFFENSE}
+                strokeWidth={0.8}
+                strokeDasharray="1.5 1"
+                opacity={0.85}
+                markerEnd="url(#arrow-offense)"
               />
             );
           }
@@ -152,15 +186,30 @@ export default function FieldCanvas({
 
         from.defense.forEach((p, i) => {
           const c = to.defense[i];
+          const isHighlighted = isCurrent && c.highlight;
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y)) {
             arrows.push(
               <line
                 key={`ad-${s}-${i}`}
                 x1={p.x} y1={p.y} x2={c.x} y2={c.y}
                 stroke={COLOR_DEFENSE}
-                strokeWidth={0.8}
+                strokeWidth={isHighlighted ? 1.4 : 0.8}
                 opacity={opacity}
                 markerEnd={isCurrent ? "url(#arrow-defense)" : undefined}
+              />
+            );
+          }
+          // Branch arrow
+          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)) {
+            arrows.push(
+              <line
+                key={`ad-branch-${s}-${i}`}
+                x1={p.x} y1={p.y} x2={c.branch.x} y2={c.branch.y}
+                stroke={COLOR_DEFENSE}
+                strokeWidth={0.8}
+                strokeDasharray="1.5 1"
+                opacity={0.85}
+                markerEnd="url(#arrow-defense)"
               />
             );
           }
@@ -187,7 +236,7 @@ export default function FieldCanvas({
       return arrows;
     }
 
-    // Edit mode: draw only prev → current arrows
+    // ── Edit mode: draw only prev → current arrows ──
     const arrows: React.ReactNode[] = [];
 
     current.offense.forEach((cur, i) => {
@@ -198,7 +247,21 @@ export default function FieldCanvas({
             key={`ao-${i}`}
             x1={p.x} y1={p.y} x2={cur.x} y2={cur.y}
             stroke={COLOR_OFFENSE}
+            strokeWidth={cur.highlight ? 1.4 : 0.8}
+            markerEnd="url(#arrow-offense)"
+          />
+        );
+      }
+      // Branch arrow in edit mode
+      if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)) {
+        arrows.push(
+          <line
+            key={`ao-branch-${i}`}
+            x1={p.x} y1={p.y} x2={cur.branch.x} y2={cur.branch.y}
+            stroke={COLOR_OFFENSE}
             strokeWidth={0.8}
+            strokeDasharray="1.5 1"
+            opacity={0.85}
             markerEnd="url(#arrow-offense)"
           />
         );
@@ -213,7 +276,21 @@ export default function FieldCanvas({
             key={`ad-${i}`}
             x1={p.x} y1={p.y} x2={cur.x} y2={cur.y}
             stroke={COLOR_DEFENSE}
+            strokeWidth={cur.highlight ? 1.4 : 0.8}
+            markerEnd="url(#arrow-defense)"
+          />
+        );
+      }
+      // Branch arrow in edit mode
+      if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)) {
+        arrows.push(
+          <line
+            key={`ad-branch-${i}`}
+            x1={p.x} y1={p.y} x2={cur.branch.x} y2={cur.branch.y}
+            stroke={COLOR_DEFENSE}
             strokeWidth={0.8}
+            strokeDasharray="1.5 1"
+            opacity={0.85}
             markerEnd="url(#arrow-defense)"
           />
         );
@@ -239,6 +316,47 @@ export default function FieldCanvas({
     return arrows;
   }
 
+  // ─── Branch dot handles (edit mode only) ────────────────────────────────────
+
+  function renderBranchHandles() {
+    if (mode !== "edit") return null;
+    const handles: React.ReactNode[] = [];
+
+    current.offense.forEach((p, i) => {
+      if (p.branch && isOnField(p.branch.x, p.branch.y)) {
+        handles.push(
+          <g
+            key={`bh-o-${i}`}
+            transform={`translate(${p.branch.x}, ${p.branch.y})`}
+            style={{ cursor: "grab" }}
+            onMouseDown={handleMouseDown({ team: "offense", index: i, kind: "branch" })}
+          >
+            <circle r={1.1} fill={COLOR_OFFENSE} opacity={0.7} />
+            <circle r={0.5} fill="white" opacity={0.9} />
+          </g>
+        );
+      }
+    });
+
+    current.defense.forEach((p, i) => {
+      if (p.branch && isOnField(p.branch.x, p.branch.y)) {
+        handles.push(
+          <g
+            key={`bh-d-${i}`}
+            transform={`translate(${p.branch.x}, ${p.branch.y})`}
+            style={{ cursor: "grab" }}
+            onMouseDown={handleMouseDown({ team: "defense", index: i, kind: "branch" })}
+          >
+            <circle r={1.1} fill={COLOR_DEFENSE} opacity={0.7} />
+            <circle r={0.5} fill="white" opacity={0.9} />
+          </g>
+        );
+      }
+    });
+
+    return handles;
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -253,7 +371,7 @@ export default function FieldCanvas({
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
       >
-        {/* ── Defs: arrowhead markers ── */}
+        {/* ── Defs: arrowhead markers + highlight glow filter ── */}
         <defs>
           {(
             [
@@ -275,6 +393,14 @@ export default function FieldCanvas({
               <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
             </marker>
           ))}
+          {/* Glow filter for highlighted players */}
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="0.8" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
         </defs>
 
         {/* ── Field background ── */}
@@ -282,10 +408,8 @@ export default function FieldCanvas({
 
         {/* ── Perimeter outline ── */}
         <rect
-          x={0}
-          y={0}
-          width={VIEWBOX_W}
-          height={FIELD_H}
+          x={0} y={0}
+          width={VIEWBOX_W} height={FIELD_H}
           fill="none"
           stroke="white"
           strokeWidth={0.5}
@@ -298,33 +422,13 @@ export default function FieldCanvas({
         {/* ── Brick marks at (40,20) and (70,20) ── */}
         {[40, 70].map((bx) => (
           <g key={bx}>
-            <line
-              x1={bx - 0.7}
-              y1={20 - 0.7}
-              x2={bx + 0.7}
-              y2={20 + 0.7}
-              stroke="white"
-              strokeWidth={0.4}
-            />
-            <line
-              x1={bx + 0.7}
-              y1={20 - 0.7}
-              x2={bx - 0.7}
-              y2={20 + 0.7}
-              stroke="white"
-              strokeWidth={0.4}
-            />
+            <line x1={bx - 0.7} y1={20 - 0.7} x2={bx + 0.7} y2={20 + 0.7} stroke="white" strokeWidth={0.4} />
+            <line x1={bx + 0.7} y1={20 - 0.7} x2={bx - 0.7} y2={20 + 0.7} stroke="white" strokeWidth={0.4} />
           </g>
         ))}
 
         {/* ── Staging area ── */}
-        <rect
-          x={0}
-          y={FIELD_H}
-          width={VIEWBOX_W}
-          height={VIEWBOX_H - FIELD_H}
-          fill="#1e293b"
-        />
+        <rect x={0} y={FIELD_H} width={VIEWBOX_W} height={VIEWBOX_H - FIELD_H} fill="#1e293b" />
         <text
           x={VIEWBOX_W / 2}
           y={VIEWBOX_H - 1.5}
@@ -336,8 +440,11 @@ export default function FieldCanvas({
           Drag players onto the field
         </text>
 
-        {/* ── Route arrows (below players so they render underneath) ── */}
+        {/* ── Route arrows (rendered below players) ── */}
         {renderArrows()}
+
+        {/* ── Branch destination handles (edit mode) ── */}
+        {renderBranchHandles()}
 
         {/* ── Offense players ── */}
         {current.offense.map((p, i) => (
@@ -348,8 +455,18 @@ export default function FieldCanvas({
               cursor: mode === "edit" ? "grab" : "default",
               ...(mode === "view" ? { transition: "transform 0.8s ease" } : {}),
             }}
-            onMouseDown={handleMouseDown({ team: "offense", index: i })}
+            onMouseDown={handleMouseDown({ team: "offense", index: i, kind: "player" })}
           >
+            {/* Highlight ring */}
+            {p.highlight && (
+              <circle
+                r={HIGHLIGHT_R}
+                fill={COLOR_OFFENSE}
+                opacity={0.35}
+                filter="url(#glow)"
+                style={mode === "view" ? { animation: "pulse 1.2s ease-in-out infinite" } : undefined}
+              />
+            )}
             <circle r={PLAYER_R} fill={COLOR_OFFENSE} />
             <text
               textAnchor="middle"
@@ -374,8 +491,18 @@ export default function FieldCanvas({
               cursor: mode === "edit" ? "grab" : "default",
               ...(mode === "view" ? { transition: "transform 0.8s ease" } : {}),
             }}
-            onMouseDown={handleMouseDown({ team: "defense", index: i })}
+            onMouseDown={handleMouseDown({ team: "defense", index: i, kind: "player" })}
           >
+            {/* Highlight ring */}
+            {p.highlight && (
+              <circle
+                r={HIGHLIGHT_R}
+                fill={COLOR_DEFENSE}
+                opacity={0.35}
+                filter="url(#glow)"
+                style={mode === "view" ? { animation: "pulse 1.2s ease-in-out infinite" } : undefined}
+              />
+            )}
             <circle r={PLAYER_R} fill={COLOR_DEFENSE} />
             <text
               textAnchor="middle"
@@ -398,16 +525,19 @@ export default function FieldCanvas({
             cursor: mode === "edit" ? "grab" : "default",
             ...(mode === "view" ? { transition: "transform 0.8s ease" } : {}),
           }}
-          onMouseDown={handleMouseDown({ team: "disc", index: 0 })}
+          onMouseDown={handleMouseDown({ team: "disc", index: 0, kind: "player" })}
         >
-          <circle
-            r={DISC_R}
-            fill="white"
-            stroke={COLOR_DISC_STROKE}
-            strokeWidth={0.5}
-          />
+          <circle r={DISC_R} fill="white" stroke={COLOR_DISC_STROKE} strokeWidth={0.5} />
         </g>
       </svg>
+
+      {/* Pulse keyframe injected once */}
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 0.35; transform: scale(1); }
+          50%       { opacity: 0.55; transform: scale(1.15); }
+        }
+      `}</style>
     </div>
   );
 }
