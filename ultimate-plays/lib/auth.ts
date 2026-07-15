@@ -32,3 +32,17 @@ export async function requireAdmin(): Promise<SessionData | NextResponse> {
   }
   return { email: session.email, role: session.role };
 }
+
+/**
+ * Returns the session data if the user can edit (editor or admin), or a 401/403 NextResponse.
+ */
+export async function requireEditor(): Promise<SessionData | NextResponse> {
+  const session = await getSession();
+  if (!session.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (session.role !== "editor" && session.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return { email: session.email, role: session.role };
+}

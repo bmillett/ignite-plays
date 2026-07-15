@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { plays, playSteps, playTags, tags } from "@/lib/db/schema";
 import { eq, asc } from "drizzle-orm";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireEditor } from "@/lib/auth";
 import type { StepPositions } from "@/components/FieldCanvas";
 
 export async function GET(
@@ -53,7 +53,7 @@ export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAuth();
+  const auth = await requireEditor();
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;
@@ -123,7 +123,7 @@ export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAuth();
+  const auth = await requireEditor();
   if (auth instanceof NextResponse) return auth;
 
   const { id } = await params;

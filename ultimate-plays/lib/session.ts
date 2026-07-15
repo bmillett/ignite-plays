@@ -2,7 +2,7 @@ import type { SessionOptions } from "iron-session";
 
 export interface SessionData {
   email: string;
-  role: "member" | "admin";
+  role: "member" | "editor" | "admin";
 }
 
 export const sessionOptions: SessionOptions = {

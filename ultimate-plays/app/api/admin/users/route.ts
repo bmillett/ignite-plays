@@ -22,9 +22,9 @@ export async function POST(req: NextRequest) {
 
   const { email, role } = await req.json();
 
-  if (!email || !["member", "admin"].includes(role)) {
+  if (!email || !["member", "editor", "admin"].includes(role)) {
     return NextResponse.json(
-      { error: "Valid email and role (member|admin) are required" },
+      { error: "Valid email and role (member|editor|admin) are required" },
       { status: 400 }
     );
   }
@@ -35,6 +35,40 @@ export async function POST(req: NextRequest) {
     .returning({ id: users.id, email: users.email, role: users.role, createdAt: users.createdAt });
 
   return NextResponse.json(inserted, { status: 201 });
+}
+
+export async function PATCH(req: NextRequest) {
+  const auth = await requireAdmin();
+  if (auth instanceof NextResponse) return auth;
+
+  const { email, role } = await req.json();
+
+  if (!email || !["member", "editor", "admin"].includes(role)) {
+    return NextResponse.json(
+      { error: "Valid email and role (member|editor|admin) are required" },
+      { status: 400 }
+    );
+  }
+
+  // Prevent admin from demoting themselves
+  if (email.toLowerCase().trim() === auth.email && role !== "admin") {
+    return NextResponse.json(
+      { error: "Cannot change your own role" },
+      { status: 400 }
+    );
+  }
+
+  const [updated] = await db
+    .update(users)
+    .set({ role })
+    .where(eq(users.email, email.toLowerCase().trim()))
+    .returning({ id: users.id, email: users.email, role: users.role, createdAt: users.createdAt });
+
+  if (!updated) {
+    return NextResponse.json({ error: "User not found" }, { status: 404 });
+  }
+
+  return NextResponse.json(updated);
 }
 
 export async function DELETE(req: NextRequest) {

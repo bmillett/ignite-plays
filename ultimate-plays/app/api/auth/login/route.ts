@@ -28,6 +28,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Check password against the env var for the user's role
+  // editors share TEAM_PASSWORD; only admins use ADMIN_PASSWORD
   const expectedPassword =
     user.role === "admin"
       ? process.env.ADMIN_PASSWORD

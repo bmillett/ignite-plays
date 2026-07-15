@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { SessionData } from "@/lib/session";
 
 export interface Play {
   id: number;
@@ -36,10 +37,12 @@ function formatDate(iso: string) {
 interface Props {
   play: Play;
   onDeleted: (id: number) => void;
+  role: SessionData["role"];
 }
 
-export default function PlayCard({ play, onDeleted }: Props) {
+export default function PlayCard({ play, onDeleted, role }: Props) {
   const router = useRouter();
+  const canEdit = role === "editor" || role === "admin";
 
   async function handleDelete() {
     if (!confirm(`Delete "${play.name}"? This cannot be undone.`)) return;
@@ -82,18 +85,22 @@ export default function PlayCard({ play, onDeleted }: Props) {
           >
             View
           </Link>
-          <Link
-            href={`/plays/${play.id}/edit`}
-            className="rounded-md bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 border border-blue-200 hover:bg-blue-100 active:bg-blue-200 transition-colors"
-          >
-            Edit
-          </Link>
-          <button
-            onClick={handleDelete}
-            className="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-600 border border-red-200 hover:bg-red-100 active:bg-red-200 transition-colors"
-          >
-            Delete
-          </button>
+          {canEdit && (
+            <Link
+              href={`/plays/${play.id}/edit`}
+              className="rounded-md bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 border border-blue-200 hover:bg-blue-100 active:bg-blue-200 transition-colors"
+            >
+              Edit
+            </Link>
+          )}
+          {canEdit && (
+            <button
+              onClick={handleDelete}
+              className="rounded-md bg-red-50 px-3 py-2 text-xs font-medium text-red-600 border border-red-200 hover:bg-red-100 active:bg-red-200 transition-colors"
+            >
+              Delete
+            </button>
+          )}
         </div>
       </div>
     </div>

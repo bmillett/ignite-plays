@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import NavBar from "@/components/NavBar";
 import PlayCard, { Play } from "@/components/PlayCard";
+import type { SessionData } from "@/lib/session";
 
 interface Tag {
   id: number;
@@ -15,14 +16,18 @@ export default function HomePage() {
   const [tags, setTags] = useState<Tag[]>([]);
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [role, setRole] = useState<SessionData["role"]>("member");
+  const canEdit = role === "editor" || role === "admin";
 
   useEffect(() => {
     Promise.all([
       fetch("/api/plays").then((r) => r.json()),
       fetch("/api/tags").then((r) => r.json()),
-    ]).then(([playsData, tagsData]) => {
+      fetch("/api/auth/me").then((r) => r.json()),
+    ]).then(([playsData, tagsData, meData]) => {
       setPlays(playsData);
       setTags(tagsData);
+      if (meData?.role) setRole(meData.role);
       setLoading(false);
     });
   }, []);
@@ -53,12 +58,14 @@ export default function HomePage() {
         {/* Page header */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Play Library</h1>
-          <Link
-            href="/plays/new"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
-          >
-            + New Play
-          </Link>
+          {canEdit && (
+            <Link
+              href="/plays/new"
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+            >
+              + New Play
+            </Link>
+          )}
         </div>
 
         {/* Tag filter bar */}
@@ -101,7 +108,7 @@ export default function HomePage() {
                 ? "No plays yet. Create your first play!"
                 : "No plays match the selected tags."}
             </p>
-            {plays.length === 0 && (
+            {plays.length === 0 && canEdit && (
               <Link
                 href="/plays/new"
                 className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
@@ -113,7 +120,7 @@ export default function HomePage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((play) => (
-              <PlayCard key={play.id} play={play} onDeleted={handleDeleted} />
+              <PlayCard key={play.id} play={play} onDeleted={handleDeleted} role={role} />
             ))}
           </div>
         )}
