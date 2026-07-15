@@ -9,6 +9,13 @@ import {
   pgEnum,
 } from "drizzle-orm/pg-core";
 
+// Key-value settings table (e.g. hashed passwords)
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 export const roleEnum = pgEnum("role", ["member", "editor", "admin"]);
 
 export const users = pgTable("users", {
