@@ -26,6 +26,7 @@ export default function AnimationPlayer({
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<SpeedLabel>("Normal");
+  const [showTracks, setShowTracks] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const lastStep = steps.length - 1;
@@ -93,7 +94,7 @@ export default function AnimationPlayer({
     <div className="flex flex-col gap-4">
       {/* Field */}
       <div className="rounded-xl overflow-hidden border border-gray-200 bg-gray-900">
-        <FieldCanvas steps={steps} currentStep={currentStep} mode="view" />
+        <FieldCanvas steps={steps} currentStep={currentStep} mode="view" showTracks={showTracks} />
       </div>
 
       {/* Control bar */}
@@ -188,6 +189,23 @@ export default function AnimationPlayer({
               </button>
             ))}
           </div>
+
+          {/* Tracks toggle */}
+          <button
+            onClick={() => setShowTracks((t) => !t)}
+            title={showTracks ? "Hide ghost tracks" : "Show ghost tracks"}
+            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2.5 text-xs font-medium transition-colors ${
+              showTracks
+                ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                : "border-gray-300 bg-white text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M2 8 Q5 4 8 8 Q11 12 14 8" />
+              <path d="M2 11 Q5 7 8 11 Q11 15 14 11" opacity="0.4" />
+            </svg>
+            Tracks
+          </button>
 
           {/* Step indicator */}
           <span className="ml-auto text-sm text-gray-500 tabular-nums whitespace-nowrap">

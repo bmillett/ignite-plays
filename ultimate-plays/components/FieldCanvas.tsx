@@ -23,6 +23,7 @@ interface FieldCanvasProps {
   steps: StepPositions[];
   currentStep: number;
   mode: "edit" | "view";
+  showTracks?: boolean;
   onPositionChange?: (
     team: "offense" | "defense" | "disc",
     playerIndex: number,
@@ -167,6 +168,7 @@ export default function FieldCanvas({
   steps,
   currentStep,
   mode,
+  showTracks = true,
   onPositionChange,
   onBranchChange,
 }: FieldCanvasProps) {
@@ -228,9 +230,11 @@ export default function FieldCanvas({
       const arrows: React.ReactNode[] = [];
 
       for (let s = 1; s <= currentStep; s++) {
+        const isCurrent = s === currentStep;
+        // Skip ghost trail steps when tracks are hidden
+        if (!isCurrent && !showTracks) continue;
         const from = steps[s - 1];
         const to = steps[s];
-        const isCurrent = s === currentStep;
         const opacity = isCurrent ? 1 : 0.2;
 
         from.offense.forEach((p, i) => {
