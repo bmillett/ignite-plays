@@ -178,7 +178,7 @@ function arrowLines(
   // Outline has no arrowhead. Its painted edge must not bleed past the arrowhead base.
   // Arrowhead base is shortenAmt from centre. Outline half-stroke bleeds outlineWidth/2.
   // So outline endpoint must be at least (shortenAmt + outlineWidth/2) from centre.
-  const outlineWidth = strokeWidth + 0.5;
+  const outlineWidth = strokeWidth + 0.15;
   const outlineStop  = shortenAmt + outlineWidth / 2 + 0.1;
   const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
 
