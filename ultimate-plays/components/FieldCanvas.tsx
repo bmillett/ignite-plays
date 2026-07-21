@@ -580,7 +580,11 @@ export default function FieldCanvas({
       }
 
       if (ann.type === "arrow") {
-        const markerId = `ann-arrow-${ann.id}`;
+        const markerId  = `ann-arrow-${ann.id}`;
+        const annSw     = 0.7;
+        // Shorten by tipProtrusion so the arrowhead tip lands exactly at ann.x2/y2
+        const annTip    = tipProtrusion(annSw);
+        const annEnd    = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, annTip);
         return (
           <g
             key={ann.id}
@@ -615,10 +619,10 @@ export default function FieldCanvas({
                 : undefined}
             />
 
-            {/* Arrow tip lands at ann.x2/y2 — tiny tipProtrusion is imperceptible */}
+            {/* Arrow line — shortened so tip lands exactly at ann.x2/y2 */}
             <line
-              x1={ann.x1} y1={ann.y1} x2={ann.x2} y2={ann.y2}
-              stroke={color} strokeWidth={0.7}
+              x1={ann.x1} y1={ann.y1} x2={annEnd.x2} y2={annEnd.y2}
+              stroke={color} strokeWidth={annSw}
               markerEnd={`url(#${markerId})`}
               style={{ pointerEvents: "none" }}
             />
