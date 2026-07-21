@@ -128,17 +128,16 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// markerWidth=3, strokeWidth units, refX=9 out of viewBox 0–10.
-// Arrowhead body depth = (9/10) * 3 * sw SVG units behind the endpoint.
-// We shorten both the foreground line AND the outline by this amount,
-// then add half the outline's extra stroke width so its painted edge
-// doesn't bleed past the arrowhead.
+// markerWidth=4 (in strokeWidth units), refX=9 out of viewBox 0–10.
+// The full arrowhead spans 0→10 in its local viewBox, so it is MARKER_WIDTH*sw SVG units wide.
+// refX=9 means the attachment point is at 90% of that width from the tip.
+// The line endpoint sits at refX, so the arrowhead tip protrudes (10-9)/10 * MARKER_WIDTH*sw past it.
+// To hide the line entirely behind the head, shorten by the FULL marker width * sw.
 const MARKER_WIDTH = 4;
-const MARKER_REF_X = 9;   // tip of path at x=10, refX=9 → 1/10 past the endpoint (negligible)
 
 function arrowHeadDepth(sw: number): number {
-  // How far the arrowhead body extends back from the line endpoint
-  return (MARKER_REF_X / 10) * MARKER_WIDTH * sw;
+  // Shorten by the full rendered marker width so the line ends behind the arrowhead tip
+  return MARKER_WIDTH * sw;
 }
 
 function arrowLines(
