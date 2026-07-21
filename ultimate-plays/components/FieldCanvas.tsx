@@ -133,7 +133,7 @@ function lightenColor(hex: string, amount: number): string {
 // We shorten both the foreground line AND the outline by this amount,
 // then add half the outline's extra stroke width so its painted edge
 // doesn't bleed past the arrowhead.
-const MARKER_WIDTH = 3;   // smaller head
+const MARKER_WIDTH = 4;
 const MARKER_REF_X = 9;   // tip of path at x=10, refX=9 → 1/10 past the endpoint (negligible)
 
 function arrowHeadDepth(sw: number): number {
