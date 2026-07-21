@@ -129,29 +129,24 @@ function lightenColor(hex: string, amount: number): string {
 }
 
 // SVG marker geometry (markerUnits=strokeWidth, the default):
-//   Rendered head width  = MARKER_WIDTH × strokeWidth  SVG units
-//   viewBox="0 0 10 10", refX=9
-//   tipProtrusion  = (10−9)/10 × MARKER_WIDTH × sw  past the line endpoint
-//   headDepth (back of head behind endpoint) = 9/10 × MARKER_WIDTH × sw
+//   We use refX="10" so the arrowhead TIP aligns exactly with the line endpoint.
+//   This means zero tip protrusion — the line endpoint IS the tip landing spot.
 //
-// To make the arrowhead TIP land exactly at the target circle edge we shorten by:
-//   targetRadius − tipProtrusion
-// i.e. stop the line that much short of the centre so the tip reaches the edge.
-// For annotation arrows targetRadius=0, so shorten = −tipProtrusion (don't shorten at all;
-// the tip will land tipProtrusion past x2/y2 which is visually fine — it's tiny).
+//   Rendered head depth = (10/10) × MARKER_WIDTH × strokeWidth SVG units
+//   (the entire head body sits BEHIND the endpoint)
+//
+//   Strategy:
+//   - Shorten the line by (targetRadius + ARROW_GAP) so the tip lands at
+//     the gap distance from the target circle edge.
+//   - The outline (wider stroke, no head) stops an extra headDepth behind
+//     the tip so it doesn't poke through the arrowhead.
 
 const MARKER_WIDTH = 4;
+const ARROW_GAP    = 1.2;
 
-// Fraction of marker width that protrudes PAST the line endpoint (refX=9 out of viewBox 0-10)
-// tip protrudes (10-9)/10 = 10% of the rendered marker width past the endpoint
-// head depth = 9/10 = 90% behind the endpoint
-// rendered marker width = MARKER_WIDTH * strokeWidth SVG units
-
-function tipProtrusion(sw: number): number { return 0.1 * MARKER_WIDTH * sw; }
-function headBodyDepth(sw: number): number { return 0.9 * MARKER_WIDTH * sw; }
-
-// Gap between arrowhead tip and target circle edge
-const ARROW_GAP = 1.2;
+// With refX=10, the tip IS the line endpoint → tipProtrusion = 0.
+// headBodyDepth = full MARKER_WIDTH × strokeWidth (entire head is behind endpoint).
+function headBodyDepth(sw: number): number { return MARKER_WIDTH * sw; }
 
 function arrowLines(
   key: string,
@@ -163,36 +158,31 @@ function arrowLines(
   targetRadius: number = 0,
   extraProps: Record<string, string | number | undefined> = {}
 ): React.ReactNode[] {
-  const isDisc = markerEnd?.includes("disc") ?? !markerEnd;
+  const isDisc  = markerEnd?.includes("disc") ?? !markerEnd;
   const hasHead = !!markerEnd && !isDisc;
 
-  // shortenAmt = distance from target centre to the line endpoint.
-  // tip lands at (shortenAmt - tipProtrusion) from centre.
-  // We want tip at (targetRadius + ARROW_GAP) from centre:
-  //   shortenAmt = targetRadius + ARROW_GAP + tipProtrusion
-  const shortenAmt = hasHead
-    ? targetRadius + ARROW_GAP + tipProtrusion(strokeWidth)
-    : targetRadius;
-  const lineEnd = shortenAmt > 0 ? shortenEnd(x1, y1, x2, y2, shortenAmt) : { x2, y2 };
+  // Tip lands exactly at the line endpoint (refX=10 → zero protrusion).
+  // We shorten so tip is ARROW_GAP past the target circle edge.
+  const tipDist  = hasHead ? targetRadius + ARROW_GAP : targetRadius;
+  const tipEnd   = tipDist > 0 ? shortenEnd(x1, y1, x2, y2, tipDist) : { x2, y2 };
 
-  // Outline has no arrowhead. Its painted edge must not bleed past the arrowhead base.
-  // Arrowhead base is shortenAmt from centre. Outline half-stroke bleeds outlineWidth/2.
-  // So outline endpoint must be at least (shortenAmt + outlineWidth/2) from centre.
+  // Outline must not extend into arrowhead — stop it headBodyDepth behind the tip.
   const outlineWidth = strokeWidth + 0.15;
-  const outlineStop  = shortenAmt + outlineWidth / 2 + 0.1;
+  const outlineStop  = tipDist + headBodyDepth(strokeWidth) + outlineWidth / 2 + 0.1;
   const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
 
   const foreground = (
     <line
       key={key}
-      x1={x1} y1={y1} x2={lineEnd.x2} y2={lineEnd.y2}
+      x1={x1} y1={y1} x2={tipEnd.x2} y2={tipEnd.y2}
       stroke={stroke}
       strokeWidth={strokeWidth}
       opacity={opacity}
-      markerEnd={markerEnd}
+      markerEnd={hasHead ? markerEnd : undefined}
       {...extraProps}
     />
   );
+
   if (isDisc) return [foreground];
 
   const outlineColor = lightenColor(stroke, 0.55);
@@ -585,12 +575,9 @@ export default function FieldCanvas({
 
       if (ann.type === "arrow") {
         const markerId  = `ann-arrow-${ann.id}`;
-        const annSw  = 0.7;
-        // Shorten enough that both the tip AND the stroke cap clear ann.x2/y2
-        // tip protrudes tipProtrusion past line endpoint; cap extends sw/2 past it too.
-        // Use the larger of the two so nothing bleeds past the user-placed point.
-        const annShorten = Math.max(tipProtrusion(annSw), annSw / 2) + 0.1;
-        const annEnd     = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, annShorten);
+        const annSw = 0.7;
+        // refX=10: tip lands exactly at ann.x2 (line endpoint = tip).
+        // No shortening needed — the line IS drawn to where we want the tip.
         return (
           <g
             key={ann.id}
@@ -601,7 +588,7 @@ export default function FieldCanvas({
             <defs>
               <marker
                 id={markerId}
-                viewBox="0 0 10 10" refX="9" refY="5"
+                viewBox="0 0 10 10" refX="10" refY="5"
                 markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
                 orient="auto-start-reverse"
               >
@@ -625,9 +612,9 @@ export default function FieldCanvas({
                 : undefined}
             />
 
-            {/* Arrow line — shortened so tip lands exactly at ann.x2/y2 */}
+            {/* Tip at ann.x2 — line drawn all the way to ann.x2 with refX=10 */}
             <line
-              x1={ann.x1} y1={ann.y1} x2={annEnd.x2} y2={annEnd.y2}
+              x1={ann.x1} y1={ann.y1} x2={ann.x2} y2={ann.y2}
               stroke={color} strokeWidth={annSw}
               markerEnd={`url(#${markerId})`}
               style={{ pointerEvents: "none" }}
@@ -760,14 +747,14 @@ export default function FieldCanvas({
             ] as const
           ).map(([id, color]) => (
             <marker key={id} id={id}
-              viewBox="0 0 10 10" refX="9" refY="5"
+              viewBox="0 0 10 10" refX="10" refY="5"
               markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
               orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
             </marker>
           ))}
           <marker id="arrow-disc"
-            viewBox="0 0 10 10" refX="9" refY="5"
+            viewBox="0 0 10 10" refX="10" refY="5"
             markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
             orient="auto-start-reverse">
             <path d="M 1 1 L 9 5 L 1 9" fill="none"
