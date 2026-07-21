@@ -128,25 +128,36 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// SVG marker geometry (markerUnits=strokeWidth, the default):
-//   We use refX="10" so the arrowhead TIP aligns exactly with the line endpoint.
-//   This means zero tip protrusion — the line endpoint IS the tip landing spot.
+// ─── Arrow rendering — explicit polygon heads, no SVG markers ────────────────
 //
-//   Rendered head depth = (10/10) × MARKER_WIDTH × strokeWidth SVG units
-//   (the entire head body sits BEHIND the endpoint)
+// All lengths are in SVG viewBox units (same coordinate space as the field).
+// This avoids every SVG marker geometry ambiguity.
 //
-//   Strategy:
-//   - Shorten the line by (targetRadius + ARROW_GAP) so the tip lands at
-//     the gap distance from the target circle edge.
-//   - The outline (wider stroke, no head) stops an extra headDepth behind
-//     the tip so it doesn't poke through the arrowhead.
+//  HEAD_LEN   – arrowhead length along the arrow axis
+//  HEAD_HALF  – half-width of the arrowhead base
+//  ARROW_GAP  – gap between arrowhead TIP and the target circle edge
+//
+// For a player/disc arrow from (x1,y1) toward target centre (x2,y2):
+//   tipPt   = point on the line at distance (targetRadius + ARROW_GAP) from (x2,y2)
+//   basePt  = point at distance (targetRadius + ARROW_GAP + HEAD_LEN) from (x2,y2)
+//   The line body is drawn from (x1,y1) to basePt.
+//   The outline (wider, lighter) is also drawn from (x1,y1) to basePt.
+//   A polygon arrowhead sits from basePt to tipPt.
+//
+// This guarantees:
+//   • The line never extends past the arrowhead base
+//   • The outline never extends past the arrowhead base
+//   • The tip lands exactly ARROW_GAP from the circle edge
 
-const MARKER_WIDTH = 4;
-const ARROW_GAP    = 1.2;
+const ARROW_GAP  = 1.2;  // gap from arrowhead tip to circle edge (SVG units)
+const HEAD_LEN   = 2.8;  // arrowhead length along axis (SVG units)
+const HEAD_HALF  = 1.4;  // half-width of arrowhead base (SVG units)
 
-// With refX=10, the tip IS the line endpoint → tipProtrusion = 0.
-// headBodyDepth = full MARKER_WIDTH × strokeWidth (entire head is behind endpoint).
-function headBodyDepth(sw: number): number { return MARKER_WIDTH * sw; }
+// For the disc chevron we use a slightly smaller head
+const DISC_HEAD_LEN  = 2.2;
+const DISC_HEAD_HALF = 1.1;
+
+type ArrowStyle = "player" | "disc";
 
 function arrowLines(
   key: string,
@@ -154,51 +165,103 @@ function arrowLines(
   stroke: string,
   strokeWidth: number,
   opacity: number,
-  markerEnd: string | undefined,
+  hasHead: boolean,
   targetRadius: number = 0,
-  extraProps: Record<string, string | number | undefined> = {}
+  style: ArrowStyle = "player",
+  dashArray?: string
 ): React.ReactNode[] {
-  const isDisc  = markerEnd?.includes("disc") ?? !markerEnd;
-  const hasHead = !!markerEnd && !isDisc;
+  const dx  = x2 - x1;
+  const dy  = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 0.1) return [];
 
-  // Tip lands exactly at the line endpoint (refX=10 → zero protrusion).
-  // We shorten so tip is ARROW_GAP past the target circle edge.
-  const tipDist  = hasHead ? targetRadius + ARROW_GAP : targetRadius;
-  const tipEnd   = tipDist > 0 ? shortenEnd(x1, y1, x2, y2, tipDist) : { x2, y2 };
+  // Unit vector along the arrow direction
+  const ux = dx / len;
+  const uy = dy / len;
 
-  // Outline must not extend into arrowhead — stop it headBodyDepth behind the tip.
-  const outlineWidth = strokeWidth + 0.15;
-  const outlineStop  = tipDist + headBodyDepth(strokeWidth) + outlineWidth / 2 + 0.1;
-  const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
+  // Perpendicular unit vector (for head width)
+  const px = -uy;
+  const py =  ux;
 
-  const foreground = (
+  const hl   = style === "disc" ? DISC_HEAD_LEN  : HEAD_LEN;
+  const hw   = style === "disc" ? DISC_HEAD_HALF : HEAD_HALF;
+
+  // Where the tip of the arrowhead lands
+  const tipDist  = targetRadius + ARROW_GAP;
+  const tipX = x2 - ux * tipDist;
+  const tipY = y2 - uy * tipDist;
+
+  // Where the base of the arrowhead is (= where the line body ends)
+  const baseDist = tipDist + hl;
+  const baseX = x2 - ux * baseDist;
+  const baseY = y2 - uy * baseDist;
+
+  // Outline and foreground both end at basePt
+  const outlineWidth = strokeWidth + 0.5;
+  const outlineColor = lightenColor(stroke, 0.55);
+
+  const extraLineProps: React.SVGProps<SVGLineElement> = {};
+  if (dashArray) extraLineProps.strokeDasharray = dashArray;
+
+  const nodes: React.ReactNode[] = [];
+
+  if (hasHead) {
+    // Outline line — same start/end as foreground, no head
+    nodes.push(
+      <line
+        key={`${key}-outline`}
+        x1={x1} y1={y1} x2={baseX} y2={baseY}
+        stroke={outlineColor}
+        strokeWidth={outlineWidth}
+        opacity={opacity * 0.8}
+        strokeLinecap="round"
+        {...extraLineProps}
+      />
+    );
+  }
+
+  // Foreground line body — ends at arrowhead base
+  nodes.push(
     <line
       key={key}
-      x1={x1} y1={y1} x2={tipEnd.x2} y2={tipEnd.y2}
+      x1={x1} y1={y1} x2={hasHead ? baseX : x2} y2={hasHead ? baseY : y2}
       stroke={stroke}
       strokeWidth={strokeWidth}
       opacity={opacity}
-      markerEnd={hasHead ? markerEnd : undefined}
-      {...extraProps}
+      strokeLinecap="round"
+      {...extraLineProps}
     />
   );
 
-  if (isDisc) return [foreground];
+  if (hasHead) {
+    if (style === "disc") {
+      // Chevron (open) for disc
+      nodes.push(
+        <polyline
+          key={`${key}-head`}
+          points={`${baseX + px * hw},${baseY + py * hw} ${tipX},${tipY} ${baseX - px * hw},${baseY - py * hw}`}
+          fill="none"
+          stroke={stroke}
+          strokeWidth={strokeWidth * 0.9}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity={opacity}
+        />
+      );
+    } else {
+      // Filled triangle
+      nodes.push(
+        <polygon
+          key={`${key}-head`}
+          points={`${tipX},${tipY} ${baseX + px * hw},${baseY + py * hw} ${baseX - px * hw},${baseY - py * hw}`}
+          fill={stroke}
+          opacity={opacity}
+        />
+      );
+    }
+  }
 
-  const outlineColor = lightenColor(stroke, 0.55);
-  return [
-    <line
-      key={`${key}-outline`}
-      x1={x1} y1={y1} x2={outlineEnd.x2} y2={outlineEnd.y2}
-      stroke={outlineColor}
-      strokeWidth={outlineWidth}
-      opacity={opacity * 0.8}
-      {...(extraProps.strokeDasharray
-        ? { strokeDasharray: extraProps.strokeDasharray as string }
-        : {})}
-    />,
-    foreground,
-  ];
+  return nodes;
 }
 
 // ─── Default staging positions ────────────────────────────────────────────────
@@ -373,36 +436,32 @@ export default function FieldCanvas({
         const opacity = isCurrent ? 1 : 0.2;
 
         from.offense.forEach((p, i) => {
-          const c    = to.offense[i];
+          const c     = to.offense[i];
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             arrows.push(...arrowLines(`ao-${s}-${i}`, p.x, p.y, c.x, c.y,
-              COLOR_OFFENSE, 0.55, opacity,
-              isCurrent ? "url(#arrow-offense)" : undefined,
-              PLAYER_R));
+              COLOR_OFFENSE, 0.55, opacity, isCurrent, PLAYER_R));
           }
           if (isCurrent && c.branch
               && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             arrows.push(...arrowLines(`ao-branch-${s}-${i}`, p.x, p.y, c.branch.x, c.branch.y,
-              COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
+              COLOR_OFFENSE, 0.55, 0.85, true, PLAYER_R, "player", "1.5 1"));
           }
         });
 
         from.defense.forEach((p, i) => {
-          const c    = to.defense[i];
+          const c     = to.defense[i];
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             arrows.push(...arrowLines(`ad-${s}-${i}`, p.x, p.y, c.x, c.y,
-              COLOR_DEFENSE, 0.55, opacity,
-              isCurrent ? "url(#arrow-defense)" : undefined,
-              PLAYER_R));
+              COLOR_DEFENSE, 0.55, opacity, isCurrent, PLAYER_R));
           }
           if (isCurrent && c.branch
               && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             arrows.push(...arrowLines(`ad-branch-${s}-${i}`, p.x, p.y, c.branch.x, c.branch.y,
-              COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
+              COLOR_DEFENSE, 0.55, 0.85, true, PLAYER_R, "player", "1.5 1"));
           }
         });
 
@@ -411,9 +470,8 @@ export default function FieldCanvas({
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
             arrows.push(...arrowLines(`adisc-${s}`, p.x, p.y, c.x, c.y,
               COLOR_ARROW_DISC, isCurrent ? 0.5 : 0.4, opacity,
-              isCurrent ? "url(#arrow-disc)" : undefined,
-              DISC_R,
-              isCurrent ? { strokeDasharray: "3 1.2" } : {}));
+              isCurrent, DISC_R, "disc",
+              isCurrent ? "3 1.2" : undefined));
           }
         }
       }
@@ -428,12 +486,12 @@ export default function FieldCanvas({
       const p = prev.offense[i];
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         arrows.push(...arrowLines(`ao-${i}`, p.x, p.y, cur.x, cur.y,
-          COLOR_OFFENSE, 0.55, 1, "url(#arrow-offense)", PLAYER_R));
+          COLOR_OFFENSE, 0.55, 1, true, PLAYER_R));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
         arrows.push(...arrowLines(`ao-branch-${i}`, p.x, p.y, cur.branch.x, cur.branch.y,
-          COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
+          COLOR_OFFENSE, 0.55, 0.85, true, PLAYER_R, "player", "1.5 1"));
       }
     });
 
@@ -441,12 +499,12 @@ export default function FieldCanvas({
       const p = prev.defense[i];
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         arrows.push(...arrowLines(`ad-${i}`, p.x, p.y, cur.x, cur.y,
-          COLOR_DEFENSE, 0.55, 1, "url(#arrow-defense)", PLAYER_R));
+          COLOR_DEFENSE, 0.55, 1, true, PLAYER_R));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
         arrows.push(...arrowLines(`ad-branch-${i}`, p.x, p.y, cur.branch.x, cur.branch.y,
-          COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
+          COLOR_DEFENSE, 0.55, 0.85, true, PLAYER_R, "player", "1.5 1"));
       }
     });
 
@@ -454,7 +512,7 @@ export default function FieldCanvas({
       const p = prev.disc, c = current.disc;
       if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
         arrows.push(...arrowLines("ad-disc", p.x, p.y, c.x, c.y,
-          COLOR_ARROW_DISC, 0.5, 1, "url(#arrow-disc)", DISC_R, { strokeDasharray: "3 1.2" }));
+          COLOR_ARROW_DISC, 0.5, 1, true, DISC_R, "disc", "3 1.2"));
       }
     }
 
@@ -574,28 +632,30 @@ export default function FieldCanvas({
       }
 
       if (ann.type === "arrow") {
-        const markerId  = `ann-arrow-${ann.id}`;
-        const annSw = 0.7;
-        // refX=10: tip lands exactly at ann.x2 (line endpoint = tip).
-        // No shortening needed — the line IS drawn to where we want the tip.
+        // Explicit polygon arrowhead — same approach as player/disc arrows.
+        // ann.x2/y2 is where the TIP of the arrowhead lands.
+        const annSw   = 0.7;
+        const annHL   = 2.0;   // head length
+        const annHW   = 1.0;   // head half-width
+        const dx      = ann.x2 - ann.x1;
+        const dy      = ann.y2 - ann.y1;
+        const annLen  = Math.sqrt(dx * dx + dy * dy);
+        const ux      = annLen > 0 ? dx / annLen : 1;
+        const uy      = annLen > 0 ? dy / annLen : 0;
+        const px      = -uy;
+        const py      = ux;
+        // Tip is at ann.x2/y2; base is annHL behind the tip
+        const tipX    = ann.x2;
+        const tipY    = ann.y2;
+        const baseX   = ann.x2 - ux * annHL;
+        const baseY   = ann.y2 - uy * annHL;
+
         return (
           <g
             key={ann.id}
             onMouseEnter={mode === "edit" ? () => setHoveredAnn(ann.id) : undefined}
             onMouseLeave={mode === "edit" ? () => setHoveredAnn(null)   : undefined}
           >
-            {/* Dynamic arrowhead marker for this annotation's color */}
-            <defs>
-              <marker
-                id={markerId}
-                viewBox="0 0 10 10" refX="10" refY="5"
-                markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
-                orient="auto-start-reverse"
-              >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
-              </marker>
-            </defs>
-
             {/* Invisible wide hit-area line */}
             <line
               x1={ann.x1} y1={ann.y1} x2={ann.x2} y2={ann.y2}
@@ -612,11 +672,18 @@ export default function FieldCanvas({
                 : undefined}
             />
 
-            {/* Tip at ann.x2 — line drawn all the way to ann.x2 with refX=10 */}
+            {/* Line body — stops at arrowhead base */}
             <line
-              x1={ann.x1} y1={ann.y1} x2={ann.x2} y2={ann.y2}
+              x1={ann.x1} y1={ann.y1} x2={baseX} y2={baseY}
               stroke={color} strokeWidth={annSw}
-              markerEnd={`url(#${markerId})`}
+              strokeLinecap="round"
+              style={{ pointerEvents: "none" }}
+            />
+
+            {/* Explicit arrowhead polygon — tip at ann.x2/y2 */}
+            <polygon
+              points={`${tipX},${tipY} ${baseX + px * annHW},${baseY + py * annHW} ${baseX - px * annHW},${baseY - py * annHW}`}
+              fill={color}
               style={{ pointerEvents: "none" }}
             />
 
@@ -738,28 +805,8 @@ export default function FieldCanvas({
         onMouseLeave={handleMouseUp}
         onClick={handleSvgClick}
       >
-        {/* ── Defs ── */}
+        {/* ── Defs — only glow filter; arrowheads are explicit polygons now ── */}
         <defs>
-          {(
-            [
-              ["arrow-offense", COLOR_OFFENSE],
-              ["arrow-defense", COLOR_DEFENSE],
-            ] as const
-          ).map(([id, color]) => (
-            <marker key={id} id={id}
-              viewBox="0 0 10 10" refX="10" refY="5"
-              markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
-              orient="auto-start-reverse">
-              <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
-            </marker>
-          ))}
-          <marker id="arrow-disc"
-            viewBox="0 0 10 10" refX="10" refY="5"
-            markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
-            orient="auto-start-reverse">
-            <path d="M 1 1 L 9 5 L 1 9" fill="none"
-              stroke={COLOR_ARROW_DISC} strokeWidth="1.8" strokeLinejoin="round" />
-          </marker>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="0.8" result="blur" />
             <feMerge>
