@@ -234,8 +234,31 @@ function arrowLines(
   );
 
   if (hasHead) {
+    // Expand the outline head: widen by outlineWidth/2 along the perp,
+    // and extend the base back by outlineWidth/2 along the axis so the
+    // outline meets the outline line cleanly with no gap or overlap.
+    const ow2 = outlineWidth / 2;
+    const oTipX  = tipX  - ux * ow2;
+    const oTipY  = tipY  - uy * ow2;
+    const oBaseX = baseX - ux * ow2;
+    const oBaseY = baseY - uy * ow2;
+    const oHW    = hw + ow2;
+
     if (style === "disc") {
-      // Chevron (open) for disc
+      // Outline chevron
+      nodes.push(
+        <polyline
+          key={`${key}-head-outline`}
+          points={`${oBaseX + px * oHW},${oBaseY + py * oHW} ${oTipX},${oTipY} ${oBaseX - px * oHW},${oBaseY - py * oHW}`}
+          fill="none"
+          stroke={outlineColor}
+          strokeWidth={outlineWidth}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          opacity={opacity * 0.8}
+        />
+      );
+      // Foreground chevron
       nodes.push(
         <polyline
           key={`${key}-head`}
@@ -249,7 +272,16 @@ function arrowLines(
         />
       );
     } else {
-      // Filled triangle
+      // Outline filled triangle (slightly larger)
+      nodes.push(
+        <polygon
+          key={`${key}-head-outline`}
+          points={`${oTipX},${oTipY} ${oBaseX + px * oHW},${oBaseY + py * oHW} ${oBaseX - px * oHW},${oBaseY - py * oHW}`}
+          fill={outlineColor}
+          opacity={opacity * 0.8}
+        />
+      );
+      // Foreground filled triangle
       nodes.push(
         <polygon
           key={`${key}-head`}
