@@ -61,6 +61,10 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
   const [annColor, setAnnColor]       = useState<AnnotationColor>("white");
   const [keepAnnotations, setKeepAnnotations] = useState(false);
 
+  // Add-step popover
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetch("/api/tags")
       .then((r) => r.json())
@@ -207,14 +211,19 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
 
   // ─── Step management ─────────────────────────────────────────────────────
 
-  function addStep() {
+  function insertStepAfter(sourceIdx: number) {
     setIsDirty(true);
+    setShowAddMenu(false);
     setSteps((prev) => {
-      const cloned: StepPositions = JSON.parse(JSON.stringify(prev[currentStep]));
+      const cloned: StepPositions = JSON.parse(JSON.stringify(prev[sourceIdx]));
       delete cloned.note;
-      // Clear annotations unless "keep" is checked
       if (!keepAnnotations) delete cloned.annotations;
-      return [...prev, cloned];
+      // Strip branch arrows from all players — they belong to a specific step
+      cloned.offense = cloned.offense.map(({ branch: _b, ...p }) => p);
+      cloned.defense = cloned.defense.map(({ branch: _b, ...p }) => p);
+      const next = [...prev];
+      next.splice(currentStep + 1, 0, cloned);
+      return next;
     });
     setCurrentStep((prev) => prev + 1);
   }
@@ -417,10 +426,71 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
               ))}
             </div>
             <div className="flex gap-2 mt-2">
-              <button type="button" onClick={addStep}
-                className="flex-1 rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
-                + Add Step
-              </button>
+              {/* Add Step — popover with "after current" + "copy from" options */}
+              <div className="flex-1 relative" ref={addMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowAddMenu((v) => !v)}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-center gap-1"
+                >
+                  + Add Step
+                  <svg viewBox="0 0 10 6" width="8" height="8" fill="currentColor" className="opacity-50">
+                    <path d="M0 0l5 6 5-6H0z" />
+                  </svg>
+                </button>
+
+                {showAddMenu && (
+                  <div className="absolute left-0 top-full mt-1 w-52 rounded-lg border border-gray-200 bg-white shadow-lg z-20 overflow-hidden">
+                    {/* Close on outside click */}
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setShowAddMenu(false)}
+                    />
+                    <div className="relative z-20">
+                      {/* After current step */}
+                      <button
+                        type="button"
+                        onClick={() => insertStepAfter(currentStep)}
+                        className="w-full text-left px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition-colors border-b border-gray-100"
+                      >
+                        ＋ After Step {currentStep + 1} <span className="font-normal text-gray-400">(copy current)</span>
+                      </button>
+
+                      {/* Copy from any step */}
+                      {steps.length > 1 && (
+                        <>
+                          <p className="px-3 pt-2 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                            Copy from…
+                          </p>
+                          {steps.map((_, i) => (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => insertStepAfter(i)}
+                              className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
+                                i === currentStep
+                                  ? "text-gray-400 cursor-default"
+                                  : "text-gray-700 hover:bg-blue-50 hover:text-blue-700"
+                              }`}
+                            >
+                              Step {i + 1}
+                              {i === currentStep && (
+                                <span className="ml-1 text-gray-400">(current)</span>
+                              )}
+                              {steps[i].note && (
+                                <span className="ml-1 text-gray-400 truncate">
+                                  — {steps[i].note!.slice(0, 20)}{steps[i].note!.length > 20 ? "…" : ""}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <button type="button" onClick={removeStep} disabled={steps.length <= 1}
                 className="flex-1 rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs font-semibold text-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
                 − Remove
