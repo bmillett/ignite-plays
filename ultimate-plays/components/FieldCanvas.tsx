@@ -141,6 +141,8 @@ function lightenColor(hex: string, amount: number): string {
 // the tip will land tipProtrusion past x2/y2 which is visually fine — it's tiny).
 
 const MARKER_WIDTH = 4;
+// Gap between arrowhead tip and target circle edge (keeps tip just clear of the icon)
+const ARROW_GAP = 0.5;
 
 function tipProtrusion(sw: number): number {
   return (1 / 10) * MARKER_WIDTH * sw;      // how far tip sticks past the line endpoint
@@ -418,7 +420,7 @@ export default function FieldCanvas({
             arrows.push(...arrowLines(`adisc-${s}`, p.x, p.y, c.x, c.y,
               COLOR_ARROW_DISC, isCurrent ? 0.5 : 0.4, opacity,
               isCurrent ? "url(#arrow-disc)" : undefined,
-              DISC_R,
+              DISC_R + ARROW_GAP,
               isCurrent ? { strokeDasharray: "3 1.2" } : {}));
           }
         }
