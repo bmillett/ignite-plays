@@ -80,6 +80,13 @@ export default function NavBar() {
                   <span>👥</span> Manage Users
                 </Link>
                 <Link
+                  href="/admin/tags"
+                  onClick={() => setAdminOpen(false)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
+                >
+                  <span>🏷</span> Manage Tags
+                </Link>
+                <Link
                   href="/admin/passwords"
                   onClick={() => setAdminOpen(false)}
                   className="flex items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"

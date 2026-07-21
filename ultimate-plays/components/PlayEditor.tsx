@@ -161,10 +161,11 @@ export default function PlayEditor({ initialPlay }: PlayEditorProps) {
   function addStep() {
     setIsDirty(true);
     setSteps((prev) => {
-      // Clone current step's positions as starting point for new step
+      // Clone current step's positions as starting point for new step, but clear the note
       const cloned: StepPositions = JSON.parse(
         JSON.stringify(prev[currentStep])
       );
+      delete cloned.note;
       return [...prev, cloned];
     });
     setCurrentStep((prev) => prev + 1);
