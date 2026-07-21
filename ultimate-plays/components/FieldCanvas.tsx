@@ -128,6 +128,15 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
+// markerWidth=4, strokeWidth units, refX=9 out of viewBox 0–10.
+// The back of the arrowhead is at refX=0, which is (9/10)*4*sw = 3.6*sw SVG units behind the endpoint.
+// Shorten the foreground line by that amount so the line body ends at the arrowhead base.
+// strokeWidth for player arrows is 0.8 → shorten by 3.6*0.8 = 2.88 ≈ 2.9
+// We pass strokeWidth in so we can compute it precisely.
+function arrowHeadShorten(strokeWidth: number): number {
+  return (9 / 10) * 4 * strokeWidth;
+}
+
 function arrowLines(
   key: string,
   x1: number, y1: number, x2: number, y2: number,
@@ -138,11 +147,17 @@ function arrowLines(
   extraProps: Record<string, string | number | undefined> = {}
 ): React.ReactNode[] {
   const isDisc = markerEnd?.includes("disc") ?? !markerEnd;
+  const hasHead = !!markerEnd && !isDisc;
+
+  // Shorten the foreground line so its endpoint sits at the base of the arrowhead
+  const lineEnd = hasHead
+    ? shortenEnd(x1, y1, x2, y2, arrowHeadShorten(strokeWidth))
+    : { x2, y2 };
 
   const foreground = (
     <line
       key={key}
-      x1={x1} y1={y1} x2={x2} y2={y2}
+      x1={x1} y1={y1} x2={lineEnd.x2} y2={lineEnd.y2}
       stroke={stroke}
       strokeWidth={strokeWidth}
       opacity={opacity}
@@ -152,8 +167,8 @@ function arrowLines(
   );
   if (isDisc) return [foreground];
 
-  // Outline has no arrowhead — stop it 1.5 units back so it doesn't show past the head
-  const outlineEnd   = shortenEnd(x1, y1, x2, y2, 1.5);
+  // Outline has no arrowhead — ends just behind where the head starts
+  const outlineEnd   = shortenEnd(x1, y1, x2, y2, arrowHeadShorten(strokeWidth) + 0.5);
   const outlineColor = lightenColor(stroke, 0.55);
   const outlineWidth = strokeWidth + 0.6;
   return [
@@ -552,6 +567,8 @@ export default function FieldCanvas({
 
       if (ann.type === "arrow") {
         const markerId = `ann-arrow-${ann.id}`;
+        const annSw    = 0.9;
+        const annEnd   = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, arrowHeadShorten(annSw));
         return (
           <g
             key={ann.id}
@@ -562,9 +579,8 @@ export default function FieldCanvas({
             <defs>
               <marker
                 id={markerId}
-                viewBox="0 0 10 10" refX="10" refY="5"
-                markerWidth="3.2" markerHeight="3.2"
-                markerUnits="userSpaceOnUse"
+                viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="4" markerHeight="4"
                 orient="auto-start-reverse"
               >
                 <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
@@ -587,9 +603,9 @@ export default function FieldCanvas({
                 : undefined}
             />
 
-            {/* Arrow line — refX=10 puts the arrowhead tip exactly at x2/y2 */}
+            {/* Arrow line — shortened so line body ends at arrowhead base */}
             <line
-              x1={ann.x1} y1={ann.y1} x2={ann.x2} y2={ann.y2}
+              x1={ann.x1} y1={ann.y1} x2={annEnd.x2} y2={annEnd.y2}
               stroke={color} strokeWidth={0.9}
               markerEnd={`url(#${markerId})`}
               style={{ pointerEvents: "none" }}
@@ -722,17 +738,15 @@ export default function FieldCanvas({
             ] as const
           ).map(([id, color]) => (
             <marker key={id} id={id}
-              viewBox="0 0 10 10" refX="10" refY="5"
-              markerWidth="3.2" markerHeight="3.2"
-              markerUnits="userSpaceOnUse"
+              viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="4" markerHeight="4"
               orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
             </marker>
           ))}
           <marker id="arrow-disc"
-            viewBox="0 0 10 10" refX="10" refY="5"
-            markerWidth="3.2" markerHeight="3.2"
-            markerUnits="userSpaceOnUse"
+            viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="4" markerHeight="4"
             orient="auto-start-reverse">
             <path d="M 1 1 L 9 5 L 1 9" fill="none"
               stroke={COLOR_ARROW_DISC} strokeWidth="1.8" strokeLinejoin="round" />
