@@ -128,13 +128,17 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// markerWidth=4, strokeWidth units, refX=9 out of viewBox 0–10.
-// The back of the arrowhead is at refX=0, which is (9/10)*4*sw = 3.6*sw SVG units behind the endpoint.
-// Shorten the foreground line by that amount so the line body ends at the arrowhead base.
-// strokeWidth for player arrows is 0.8 → shorten by 3.6*0.8 = 2.88 ≈ 2.9
-// We pass strokeWidth in so we can compute it precisely.
-function arrowHeadShorten(strokeWidth: number): number {
-  return (9 / 10) * 4 * strokeWidth;
+// markerWidth=3, strokeWidth units, refX=9 out of viewBox 0–10.
+// Arrowhead body depth = (9/10) * 3 * sw SVG units behind the endpoint.
+// We shorten both the foreground line AND the outline by this amount,
+// then add half the outline's extra stroke width so its painted edge
+// doesn't bleed past the arrowhead.
+const MARKER_WIDTH = 3;   // smaller head
+const MARKER_REF_X = 9;   // tip of path at x=10, refX=9 → 1/10 past the endpoint (negligible)
+
+function arrowHeadDepth(sw: number): number {
+  // How far the arrowhead body extends back from the line endpoint
+  return (MARKER_REF_X / 10) * MARKER_WIDTH * sw;
 }
 
 function arrowLines(
@@ -149,10 +153,13 @@ function arrowLines(
   const isDisc = markerEnd?.includes("disc") ?? !markerEnd;
   const hasHead = !!markerEnd && !isDisc;
 
-  // Shorten the foreground line so its endpoint sits at the base of the arrowhead
-  const lineEnd = hasHead
-    ? shortenEnd(x1, y1, x2, y2, arrowHeadShorten(strokeWidth))
-    : { x2, y2 };
+  const depth       = hasHead ? arrowHeadDepth(strokeWidth) : 0;
+  const outlineWidth = strokeWidth + 0.5;
+  // Outline must stop far enough that its painted half-stroke clears the head
+  const outlineStop  = depth + outlineWidth / 2 + 0.2;
+
+  // Foreground: endpoint at the arrowhead's refX — the marker draws the head beyond
+  const lineEnd = hasHead ? shortenEnd(x1, y1, x2, y2, depth) : { x2, y2 };
 
   const foreground = (
     <line
@@ -167,10 +174,8 @@ function arrowLines(
   );
   if (isDisc) return [foreground];
 
-  // Outline has no arrowhead — ends just behind where the head starts
-  const outlineEnd   = shortenEnd(x1, y1, x2, y2, arrowHeadShorten(strokeWidth) + 0.5);
+  const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
   const outlineColor = lightenColor(stroke, 0.55);
-  const outlineWidth = strokeWidth + 0.6;
   return [
     <line
       key={`${key}-outline`}
@@ -363,7 +368,7 @@ export default function FieldCanvas({
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ao-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_OFFENSE, 0.8, opacity,
+              COLOR_OFFENSE, 0.55, opacity,
               isCurrent ? "url(#arrow-offense)" : undefined));
           }
           if (isCurrent && c.branch
@@ -371,7 +376,7 @@ export default function FieldCanvas({
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ao-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_OFFENSE, 0.8, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
+              COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
           }
         });
 
@@ -381,7 +386,7 @@ export default function FieldCanvas({
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ad-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_DEFENSE, 0.8, opacity,
+              COLOR_DEFENSE, 0.55, opacity,
               isCurrent ? "url(#arrow-defense)" : undefined));
           }
           if (isCurrent && c.branch
@@ -389,7 +394,7 @@ export default function FieldCanvas({
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ad-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_DEFENSE, 0.8, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
+              COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
           }
         });
 
@@ -416,13 +421,13 @@ export default function FieldCanvas({
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
         arrows.push(...arrowLines(`ao-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_OFFENSE, 0.8, 1, "url(#arrow-offense)"));
+          COLOR_OFFENSE, 0.55, 1, "url(#arrow-offense)"));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
         const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
         arrows.push(...arrowLines(`ao-branch-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_OFFENSE, 0.8, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
+          COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
       }
     });
 
@@ -431,13 +436,13 @@ export default function FieldCanvas({
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
         arrows.push(...arrowLines(`ad-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_DEFENSE, 0.8, 1, "url(#arrow-defense)"));
+          COLOR_DEFENSE, 0.55, 1, "url(#arrow-defense)"));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
         const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
         arrows.push(...arrowLines(`ad-branch-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_DEFENSE, 0.8, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
+          COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
       }
     });
 
@@ -567,8 +572,8 @@ export default function FieldCanvas({
 
       if (ann.type === "arrow") {
         const markerId = `ann-arrow-${ann.id}`;
-        const annSw    = 0.9;
-        const annEnd   = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, arrowHeadShorten(annSw));
+        const annSw    = 0.7;
+        const annEnd   = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, arrowHeadDepth(annSw));
         return (
           <g
             key={ann.id}
@@ -580,7 +585,7 @@ export default function FieldCanvas({
               <marker
                 id={markerId}
                 viewBox="0 0 10 10" refX="9" refY="5"
-                markerWidth="4" markerHeight="4"
+                markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
                 orient="auto-start-reverse"
               >
                 <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
@@ -606,7 +611,7 @@ export default function FieldCanvas({
             {/* Arrow line — shortened so line body ends at arrowhead base */}
             <line
               x1={ann.x1} y1={ann.y1} x2={annEnd.x2} y2={annEnd.y2}
-              stroke={color} strokeWidth={0.9}
+              stroke={color} strokeWidth={0.7}
               markerEnd={`url(#${markerId})`}
               style={{ pointerEvents: "none" }}
             />
@@ -739,14 +744,14 @@ export default function FieldCanvas({
           ).map(([id, color]) => (
             <marker key={id} id={id}
               viewBox="0 0 10 10" refX="9" refY="5"
-              markerWidth="4" markerHeight="4"
+              markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
               orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
             </marker>
           ))}
           <marker id="arrow-disc"
             viewBox="0 0 10 10" refX="9" refY="5"
-            markerWidth="4" markerHeight="4"
+            markerWidth={MARKER_WIDTH} markerHeight={MARKER_WIDTH}
             orient="auto-start-reverse">
             <path d="M 1 1 L 9 5 L 1 9" fill="none"
               stroke={COLOR_ARROW_DISC} strokeWidth="1.8" strokeLinejoin="round" />
