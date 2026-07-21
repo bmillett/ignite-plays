@@ -128,16 +128,31 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// markerWidth=4 (in strokeWidth units), refX=9 out of viewBox 0–10.
-// The full arrowhead spans 0→10 in its local viewBox, so it is MARKER_WIDTH*sw SVG units wide.
-// refX=9 means the attachment point is at 90% of that width from the tip.
-// The line endpoint sits at refX, so the arrowhead tip protrudes (10-9)/10 * MARKER_WIDTH*sw past it.
-// To hide the line entirely behind the head, shorten by the FULL marker width * sw.
+// SVG marker geometry:
+//   markerWidth=4, markerUnits=strokeWidth (default), viewBox="0 0 10 10", refX=9
+//   Rendered marker width in SVG units = MARKER_WIDTH * strokeWidth
+//   refX=9 means: the line endpoint aligns with x=9 in the marker's local viewBox.
+//   The arrowhead tip is at x=10, which is (1/10)*MARKER_WIDTH*sw PAST the line endpoint.
+//   The arrowhead base is at x=0, which is (9/10)*MARKER_WIDTH*sw BEHIND the line endpoint.
+//
+// Strategy: pass raw target coordinates (e.g. player centre) to arrowLines.
+//   arrowLines shortens the line by (targetRadius + headDepth) so the visible
+//   arrowhead tip lands at targetRadius from the centre.
+//   headDepth = (9/10)*MARKER_WIDTH*sw  ← body of the arrowhead behind the endpoint
+//   The tip protrudes (1/10)*MARKER_WIDTH*sw past the endpoint → final tip position
+//   is targetRadius - (1/10)*MARKER_WIDTH*sw from the centre, which is inside the circle.
+//
+// For annotations there is no target circle; we shorten only by headDepth so the
+// tip protrudes the tiny (1/10)*MARKER_WIDTH*sw beyond the user-placed endpoint.
+
 const MARKER_WIDTH = 4;
 
-function arrowHeadDepth(sw: number): number {
-  // Shorten by the full rendered marker width so the line ends behind the arrowhead tip
-  return MARKER_WIDTH * sw;
+// How far the arrowhead body sits behind the line endpoint (where we shorten to)
+function headDepth(sw: number): number { return (9 / 10) * MARKER_WIDTH * sw; }
+
+// Full rendered shortening when the arrow should land near a circle of given radius
+function arrowShorten(sw: number, targetRadius: number): number {
+  return targetRadius + headDepth(sw);
 }
 
 function arrowLines(
@@ -147,18 +162,21 @@ function arrowLines(
   strokeWidth: number,
   opacity: number,
   markerEnd: string | undefined,
+  targetRadius: number = 0,           // radius of target circle; 0 for free-standing arrows
   extraProps: Record<string, string | number | undefined> = {}
 ): React.ReactNode[] {
   const isDisc = markerEnd?.includes("disc") ?? !markerEnd;
   const hasHead = !!markerEnd && !isDisc;
 
-  const depth       = hasHead ? arrowHeadDepth(strokeWidth) : 0;
-  const outlineWidth = strokeWidth + 0.5;
-  // Outline must stop far enough that its painted half-stroke clears the head
-  const outlineStop  = depth + outlineWidth / 2 + 0.2;
+  const shorten    = hasHead ? arrowShorten(strokeWidth, targetRadius) : targetRadius;
+  const lineEnd    = shorten > 0 ? shortenEnd(x1, y1, x2, y2, shorten) : { x2, y2 };
 
-  // Foreground: endpoint at the arrowhead's refX — the marker draws the head beyond
-  const lineEnd = hasHead ? shortenEnd(x1, y1, x2, y2, depth) : { x2, y2 };
+  const outlineWidth = strokeWidth + 0.5;
+  // Outline has no arrowhead — stop it before the head base, accounting for its half-stroke width
+  const outlineStop  = hasHead
+    ? arrowShorten(strokeWidth, targetRadius) + outlineWidth / 2 + 0.1
+    : targetRadius + outlineWidth / 2;
+  const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
 
   const foreground = (
     <line
@@ -173,7 +191,6 @@ function arrowLines(
   );
   if (isDisc) return [foreground];
 
-  const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
   const outlineColor = lightenColor(stroke, 0.55);
   return [
     <line
@@ -365,17 +382,16 @@ export default function FieldCanvas({
           const c    = to.offense[i];
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
-            const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
-            arrows.push(...arrowLines(`ao-${s}-${i}`, p.x, p.y, end.x2, end.y2,
+            arrows.push(...arrowLines(`ao-${s}-${i}`, p.x, p.y, c.x, c.y,
               COLOR_OFFENSE, 0.55, opacity,
-              isCurrent ? "url(#arrow-offense)" : undefined));
+              isCurrent ? "url(#arrow-offense)" : undefined,
+              PLAYER_R));
           }
           if (isCurrent && c.branch
               && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
-            const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
-            arrows.push(...arrowLines(`ao-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
+            arrows.push(...arrowLines(`ao-branch-${s}-${i}`, p.x, p.y, c.branch.x, c.branch.y,
+              COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
           }
         });
 
@@ -383,27 +399,26 @@ export default function FieldCanvas({
           const c    = to.defense[i];
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
-            const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
-            arrows.push(...arrowLines(`ad-${s}-${i}`, p.x, p.y, end.x2, end.y2,
+            arrows.push(...arrowLines(`ad-${s}-${i}`, p.x, p.y, c.x, c.y,
               COLOR_DEFENSE, 0.55, opacity,
-              isCurrent ? "url(#arrow-defense)" : undefined));
+              isCurrent ? "url(#arrow-defense)" : undefined,
+              PLAYER_R));
           }
           if (isCurrent && c.branch
               && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
-            const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
-            arrows.push(...arrowLines(`ad-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
+            arrows.push(...arrowLines(`ad-branch-${s}-${i}`, p.x, p.y, c.branch.x, c.branch.y,
+              COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
           }
         });
 
         {
           const p = from.disc, c = to.disc;
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
-            const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
-            arrows.push(...arrowLines(`adisc-${s}`, p.x, p.y, end.x2, end.y2,
+            arrows.push(...arrowLines(`adisc-${s}`, p.x, p.y, c.x, c.y,
               COLOR_ARROW_DISC, isCurrent ? 0.5 : 0.4, opacity,
               isCurrent ? "url(#arrow-disc)" : undefined,
+              DISC_R,
               isCurrent ? { strokeDasharray: "3 1.2" } : {}));
           }
         }
@@ -418,39 +433,34 @@ export default function FieldCanvas({
     current.offense.forEach((cur, i) => {
       const p = prev.offense[i];
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
-        const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
-        arrows.push(...arrowLines(`ao-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_OFFENSE, 0.55, 1, "url(#arrow-offense)"));
+        arrows.push(...arrowLines(`ao-${i}`, p.x, p.y, cur.x, cur.y,
+          COLOR_OFFENSE, 0.55, 1, "url(#arrow-offense)", PLAYER_R));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
-        const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
-        arrows.push(...arrowLines(`ao-branch-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", { strokeDasharray: "1.5 1" }));
+        arrows.push(...arrowLines(`ao-branch-${i}`, p.x, p.y, cur.branch.x, cur.branch.y,
+          COLOR_OFFENSE, 0.55, 0.85, "url(#arrow-offense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
       }
     });
 
     current.defense.forEach((cur, i) => {
       const p = prev.defense[i];
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
-        const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
-        arrows.push(...arrowLines(`ad-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_DEFENSE, 0.55, 1, "url(#arrow-defense)"));
+        arrows.push(...arrowLines(`ad-${i}`, p.x, p.y, cur.x, cur.y,
+          COLOR_DEFENSE, 0.55, 1, "url(#arrow-defense)", PLAYER_R));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
-        const end = shortenEnd(p.x, p.y, cur.branch.x, cur.branch.y, PLAYER_R + 0.3);
-        arrows.push(...arrowLines(`ad-branch-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", { strokeDasharray: "1.5 1" }));
+        arrows.push(...arrowLines(`ad-branch-${i}`, p.x, p.y, cur.branch.x, cur.branch.y,
+          COLOR_DEFENSE, 0.55, 0.85, "url(#arrow-defense)", PLAYER_R, { strokeDasharray: "1.5 1" }));
       }
     });
 
     {
       const p = prev.disc, c = current.disc;
       if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
-        const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
-        arrows.push(...arrowLines("ad-disc", p.x, p.y, end.x2, end.y2,
-          COLOR_ARROW_DISC, 0.5, 1, "url(#arrow-disc)", { strokeDasharray: "3 1.2" }));
+        arrows.push(...arrowLines("ad-disc", p.x, p.y, c.x, c.y,
+          COLOR_ARROW_DISC, 0.5, 1, "url(#arrow-disc)", DISC_R, { strokeDasharray: "3 1.2" }));
       }
     }
 
@@ -572,7 +582,8 @@ export default function FieldCanvas({
       if (ann.type === "arrow") {
         const markerId = `ann-arrow-${ann.id}`;
         const annSw    = 0.7;
-        const annEnd   = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, arrowHeadDepth(annSw));
+        // headDepth from ann.x2/y2 — arrowLines handles shortening internally
+        const annLineEnd = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, headDepth(annSw));
         return (
           <g
             key={ann.id}
@@ -609,7 +620,7 @@ export default function FieldCanvas({
 
             {/* Arrow line — shortened so line body ends at arrowhead base */}
             <line
-              x1={ann.x1} y1={ann.y1} x2={annEnd.x2} y2={annEnd.y2}
+              x1={ann.x1} y1={ann.y1} x2={annLineEnd.x2} y2={annLineEnd.y2}
               stroke={color} strokeWidth={0.7}
               markerEnd={`url(#${markerId})`}
               style={{ pointerEvents: "none" }}
