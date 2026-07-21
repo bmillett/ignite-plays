@@ -128,31 +128,32 @@ function lightenColor(hex: string, amount: number): string {
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// SVG marker geometry:
-//   markerWidth=4, markerUnits=strokeWidth (default), viewBox="0 0 10 10", refX=9
-//   Rendered marker width in SVG units = MARKER_WIDTH * strokeWidth
-//   refX=9 means: the line endpoint aligns with x=9 in the marker's local viewBox.
-//   The arrowhead tip is at x=10, which is (1/10)*MARKER_WIDTH*sw PAST the line endpoint.
-//   The arrowhead base is at x=0, which is (9/10)*MARKER_WIDTH*sw BEHIND the line endpoint.
+// SVG marker geometry (markerUnits=strokeWidth, the default):
+//   Rendered head width  = MARKER_WIDTH × strokeWidth  SVG units
+//   viewBox="0 0 10 10", refX=9
+//   tipProtrusion  = (10−9)/10 × MARKER_WIDTH × sw  past the line endpoint
+//   headDepth (back of head behind endpoint) = 9/10 × MARKER_WIDTH × sw
 //
-// Strategy: pass raw target coordinates (e.g. player centre) to arrowLines.
-//   arrowLines shortens the line by (targetRadius + headDepth) so the visible
-//   arrowhead tip lands at targetRadius from the centre.
-//   headDepth = (9/10)*MARKER_WIDTH*sw  ← body of the arrowhead behind the endpoint
-//   The tip protrudes (1/10)*MARKER_WIDTH*sw past the endpoint → final tip position
-//   is targetRadius - (1/10)*MARKER_WIDTH*sw from the centre, which is inside the circle.
-//
-// For annotations there is no target circle; we shorten only by headDepth so the
-// tip protrudes the tiny (1/10)*MARKER_WIDTH*sw beyond the user-placed endpoint.
+// To make the arrowhead TIP land exactly at the target circle edge we shorten by:
+//   targetRadius − tipProtrusion
+// i.e. stop the line that much short of the centre so the tip reaches the edge.
+// For annotation arrows targetRadius=0, so shorten = −tipProtrusion (don't shorten at all;
+// the tip will land tipProtrusion past x2/y2 which is visually fine — it's tiny).
 
 const MARKER_WIDTH = 4;
 
-// How far the arrowhead body sits behind the line endpoint (where we shorten to)
-function headDepth(sw: number): number { return (9 / 10) * MARKER_WIDTH * sw; }
+function tipProtrusion(sw: number): number {
+  return (1 / 10) * MARKER_WIDTH * sw;      // how far tip sticks past the line endpoint
+}
 
-// Full rendered shortening when the arrow should land near a circle of given radius
+function headDepth(sw: number): number {
+  return (9 / 10) * MARKER_WIDTH * sw;      // body of head behind the line endpoint
+}
+
+// How far to shorten the line from the raw target so the tip lands at the circle edge.
+// For targetRadius=0 this is negative (no shortening needed).
 function arrowShorten(sw: number, targetRadius: number): number {
-  return targetRadius + headDepth(sw);
+  return targetRadius - tipProtrusion(sw);
 }
 
 function arrowLines(
@@ -162,21 +163,20 @@ function arrowLines(
   strokeWidth: number,
   opacity: number,
   markerEnd: string | undefined,
-  targetRadius: number = 0,           // radius of target circle; 0 for free-standing arrows
+  targetRadius: number = 0,
   extraProps: Record<string, string | number | undefined> = {}
 ): React.ReactNode[] {
   const isDisc = markerEnd?.includes("disc") ?? !markerEnd;
   const hasHead = !!markerEnd && !isDisc;
 
-  const shorten    = hasHead ? arrowShorten(strokeWidth, targetRadius) : targetRadius;
-  const lineEnd    = shorten > 0 ? shortenEnd(x1, y1, x2, y2, shorten) : { x2, y2 };
+  // Shorten so tip lands at the circle edge (or at x2/y2 when targetRadius=0)
+  const shortenAmt = hasHead ? arrowShorten(strokeWidth, targetRadius) : targetRadius;
+  const lineEnd    = shortenAmt > 0 ? shortenEnd(x1, y1, x2, y2, shortenAmt) : { x2, y2 };
 
+  // Outline: no head, must stop before the head body starts (headDepth back from target edge)
   const outlineWidth = strokeWidth + 0.5;
-  // Outline has no arrowhead — stop it before the head base, accounting for its half-stroke width
-  const outlineStop  = hasHead
-    ? arrowShorten(strokeWidth, targetRadius) + outlineWidth / 2 + 0.1
-    : targetRadius + outlineWidth / 2;
-  const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
+  const outlineStop  = targetRadius + headDepth(strokeWidth) - outlineWidth / 2;
+  const outlineEnd   = outlineStop > 0 ? shortenEnd(x1, y1, x2, y2, outlineStop) : { x2, y2 };
 
   const foreground = (
     <line
@@ -581,9 +581,6 @@ export default function FieldCanvas({
 
       if (ann.type === "arrow") {
         const markerId = `ann-arrow-${ann.id}`;
-        const annSw    = 0.7;
-        // headDepth from ann.x2/y2 — arrowLines handles shortening internally
-        const annLineEnd = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, headDepth(annSw));
         return (
           <g
             key={ann.id}
@@ -618,9 +615,9 @@ export default function FieldCanvas({
                 : undefined}
             />
 
-            {/* Arrow line — shortened so line body ends at arrowhead base */}
+            {/* Arrow tip lands at ann.x2/y2 — tiny tipProtrusion is imperceptible */}
             <line
-              x1={ann.x1} y1={ann.y1} x2={annLineEnd.x2} y2={annLineEnd.y2}
+              x1={ann.x1} y1={ann.y1} x2={ann.x2} y2={ann.y2}
               stroke={color} strokeWidth={0.7}
               markerEnd={`url(#${markerId})`}
               style={{ pointerEvents: "none" }}
