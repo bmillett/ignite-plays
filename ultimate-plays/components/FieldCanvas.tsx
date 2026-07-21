@@ -141,22 +141,17 @@ function lightenColor(hex: string, amount: number): string {
 // the tip will land tipProtrusion past x2/y2 which is visually fine — it's tiny).
 
 const MARKER_WIDTH = 4;
-// Gap between arrowhead tip and target circle edge (keeps tip just clear of the icon)
-const ARROW_GAP = 0.5;
 
-function tipProtrusion(sw: number): number {
-  return (1 / 10) * MARKER_WIDTH * sw;      // how far tip sticks past the line endpoint
-}
+// Fraction of marker width that protrudes PAST the line endpoint (refX=9 out of viewBox 0-10)
+// tip protrudes (10-9)/10 = 10% of the rendered marker width past the endpoint
+// head depth = 9/10 = 90% behind the endpoint
+// rendered marker width = MARKER_WIDTH * strokeWidth SVG units
 
-function headDepth(sw: number): number {
-  return (9 / 10) * MARKER_WIDTH * sw;      // body of head behind the line endpoint
-}
+function tipProtrusion(sw: number): number { return 0.1 * MARKER_WIDTH * sw; }
+function headBodyDepth(sw: number): number { return 0.9 * MARKER_WIDTH * sw; }
 
-// How far to shorten the line from the raw target so the tip lands at the circle edge.
-// For targetRadius=0 this is negative (no shortening needed).
-function arrowShorten(sw: number, targetRadius: number): number {
-  return targetRadius - tipProtrusion(sw);
-}
+// Gap between arrowhead tip and target circle edge
+const ARROW_GAP = 1.2;
 
 function arrowLines(
   key: string,
@@ -171,14 +166,21 @@ function arrowLines(
   const isDisc = markerEnd?.includes("disc") ?? !markerEnd;
   const hasHead = !!markerEnd && !isDisc;
 
-  // Shorten so tip lands at the circle edge (or at x2/y2 when targetRadius=0)
-  const shortenAmt = hasHead ? arrowShorten(strokeWidth, targetRadius) : targetRadius;
-  const lineEnd    = shortenAmt > 0 ? shortenEnd(x1, y1, x2, y2, shortenAmt) : { x2, y2 };
+  // shortenAmt = distance from target centre to the line endpoint.
+  // tip lands at (shortenAmt - tipProtrusion) from centre.
+  // We want tip at (targetRadius + ARROW_GAP) from centre:
+  //   shortenAmt = targetRadius + ARROW_GAP + tipProtrusion
+  const shortenAmt = hasHead
+    ? targetRadius + ARROW_GAP + tipProtrusion(strokeWidth)
+    : targetRadius;
+  const lineEnd = shortenAmt > 0 ? shortenEnd(x1, y1, x2, y2, shortenAmt) : { x2, y2 };
 
-  // Outline: no head, must stop before the head body starts (headDepth back from target edge)
+  // Outline has no arrowhead. Its painted edge must not bleed past the arrowhead base.
+  // Arrowhead base is shortenAmt from centre. Outline half-stroke bleeds outlineWidth/2.
+  // So outline endpoint must be at least (shortenAmt + outlineWidth/2) from centre.
   const outlineWidth = strokeWidth + 0.5;
-  const outlineStop  = targetRadius + headDepth(strokeWidth) - outlineWidth / 2;
-  const outlineEnd   = outlineStop > 0 ? shortenEnd(x1, y1, x2, y2, outlineStop) : { x2, y2 };
+  const outlineStop  = shortenAmt + outlineWidth / 2 + 0.1;
+  const outlineEnd   = shortenEnd(x1, y1, x2, y2, outlineStop);
 
   const foreground = (
     <line
@@ -420,7 +422,7 @@ export default function FieldCanvas({
             arrows.push(...arrowLines(`adisc-${s}`, p.x, p.y, c.x, c.y,
               COLOR_ARROW_DISC, isCurrent ? 0.5 : 0.4, opacity,
               isCurrent ? "url(#arrow-disc)" : undefined,
-              DISC_R + ARROW_GAP,
+              DISC_R,
               isCurrent ? { strokeDasharray: "3 1.2" } : {}));
           }
         }
@@ -583,10 +585,12 @@ export default function FieldCanvas({
 
       if (ann.type === "arrow") {
         const markerId  = `ann-arrow-${ann.id}`;
-        const annSw     = 0.7;
-        // Shorten by tipProtrusion so the arrowhead tip lands exactly at ann.x2/y2
-        const annTip    = tipProtrusion(annSw);
-        const annEnd    = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, annTip);
+        const annSw  = 0.7;
+        // Shorten enough that both the tip AND the stroke cap clear ann.x2/y2
+        // tip protrudes tipProtrusion past line endpoint; cap extends sw/2 past it too.
+        // Use the larger of the two so nothing bleeds past the user-placed point.
+        const annShorten = Math.max(tipProtrusion(annSw), annSw / 2) + 0.1;
+        const annEnd     = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, annShorten);
         return (
           <g
             key={ann.id}
