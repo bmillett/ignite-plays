@@ -12,9 +12,9 @@ interface AnimationPlayerProps {
 }
 
 const SPEEDS = [
-  { label: "Slow",   ms: 1800 },
-  { label: "Normal", ms: 1000 },
-  { label: "Fast",   ms: 450  },
+  { label: "Slow",   ms: 2340 },
+  { label: "Normal", ms: 1300 },
+  { label: "Fast",   ms: 585  },
 ] as const;
 
 type SpeedLabel = typeof SPEEDS[number]["label"];
