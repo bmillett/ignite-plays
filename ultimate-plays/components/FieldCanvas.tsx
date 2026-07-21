@@ -235,12 +235,11 @@ export default function FieldCanvas({
 
         from.offense.forEach((p, i) => {
           const c = to.offense[i];
-          const isHighlighted = isCurrent && c.highlight;
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ao-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_OFFENSE, isHighlighted ? 1.4 : 0.8, opacity,
+              COLOR_OFFENSE, 0.8, opacity,
               isCurrent ? "url(#arrow-offense)" : undefined));
           }
           if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
@@ -253,12 +252,11 @@ export default function FieldCanvas({
 
         from.defense.forEach((p, i) => {
           const c = to.defense[i];
-          const isHighlighted = isCurrent && c.highlight;
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ad-${s}-${i}`, p.x, p.y, end.x2, end.y2,
-              COLOR_DEFENSE, isHighlighted ? 1.4 : 0.8, opacity,
+              COLOR_DEFENSE, 0.8, opacity,
               isCurrent ? "url(#arrow-defense)" : undefined));
           }
           if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
@@ -293,7 +291,7 @@ export default function FieldCanvas({
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
         arrows.push(...arrowLines(`ao-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_OFFENSE, cur.highlight ? 1.4 : 0.8, 1, "url(#arrow-offense)"));
+          COLOR_OFFENSE, 0.8, 1, "url(#arrow-offense)"));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
@@ -308,7 +306,7 @@ export default function FieldCanvas({
       if (isOnField(p.x, p.y) && isOnField(cur.x, cur.y) && hasMoved(p.x, p.y, cur.x, cur.y)) {
         const end = shortenEnd(p.x, p.y, cur.x, cur.y, PLAYER_R + 0.3);
         arrows.push(...arrowLines(`ad-${i}`, p.x, p.y, end.x2, end.y2,
-          COLOR_DEFENSE, cur.highlight ? 1.4 : 0.8, 1, "url(#arrow-defense)"));
+          COLOR_DEFENSE, 0.8, 1, "url(#arrow-defense)"));
       }
       if (cur.branch && isOnField(p.x, p.y) && isOnField(cur.branch.x, cur.branch.y)
           && hasMoved(p.x, p.y, cur.branch.x, cur.branch.y)) {
