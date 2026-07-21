@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -8,22 +8,59 @@ export type PlayerPosition = {
   x: number;
   y: number;
   label: string;
-  highlight?: boolean;           // show glowing ring + bold arrow
-  branch?: { x: number; y: number }; // optional dashed alternate route
+  highlight?: boolean;
+  branch?: { x: number; y: number };
 };
 export type DiscPosition = { x: number; y: number };
-export type StepPositions = {
-  offense: PlayerPosition[]; // length 7
-  defense: PlayerPosition[]; // length 7
-  disc: DiscPosition;
-  note?: string;             // optional per-step coaching note
+
+// ── Annotation types ──────────────────────────────────────────────────────────
+export type AnnotationColor = "white" | "yellow" | "red" | "cyan";
+
+export type TextAnnotation = {
+  id: string;
+  type: "text";
+  x: number;
+  y: number;
+  text: string;
+  color: AnnotationColor;
 };
+
+export type ArrowAnnotation = {
+  id: string;
+  type: "arrow";
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: AnnotationColor;
+};
+
+export type Annotation = TextAnnotation | ArrowAnnotation;
+
+export type StepPositions = {
+  offense: PlayerPosition[];   // length 7
+  defense: PlayerPosition[];   // length 7
+  disc: DiscPosition;
+  note?: string;
+  annotations?: Annotation[];
+};
+
+// ── Tool mode passed in from editor ──────────────────────────────────────────
+export type AnnotationToolMode =
+  | { type: "text";  color: AnnotationColor }
+  | { type: "arrow"; color: AnnotationColor }
+  | null;
 
 interface FieldCanvasProps {
   steps: StepPositions[];
   currentStep: number;
   mode: "edit" | "view";
   showTracks?: boolean;
+  annotationTool?: AnnotationToolMode;
+  onAnnotationAdd?: (ann: Annotation) => void;
+  onAnnotationMove?: (id: string, patch: Partial<Annotation>) => void;
+  onAnnotationDelete?: (id: string) => void;
+  onAnnotationTextEdit?: (id: string, text: string) => void;
   onPositionChange?: (
     team: "offense" | "defense" | "disc",
     playerIndex: number,
@@ -39,21 +76,25 @@ interface FieldCanvasProps {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-// Field rect: 0 0 110 40  (1 SVG unit = 1 yard)
-// Staging strip: y 40–62
 const VIEWBOX_W = 110;
-const VIEWBOX_H = 62; // 40 field + 22 staging
+const VIEWBOX_H = 62;
 const FIELD_H = 40;
 
 const PLAYER_R = 1.62;
 const DISC_R = 1.08;
-const HIGHLIGHT_R = 3.0; // glowing ring radius
+const HIGHLIGHT_R = 3.0;
 
-const COLOR_OFFENSE = "#3b82f6";
-const COLOR_DEFENSE = "#ef4444";
+const COLOR_OFFENSE    = "#3b82f6";
+const COLOR_DEFENSE    = "#ef4444";
 const COLOR_DISC_STROKE = "#1e293b";
 const COLOR_ARROW_DISC = "#9ca3af";
+
+const ANN_COLOR_MAP: Record<AnnotationColor, string> = {
+  white:  "#ffffff",
+  yellow: "#facc15",
+  red:    "#f87171",
+  cyan:   "#22d3ee",
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -61,40 +102,32 @@ function isOnField(x: number, y: number): boolean {
   return x >= 0 && x <= VIEWBOX_W && y >= 0 && y <= FIELD_H;
 }
 
-// Returns true if the player has moved a meaningful distance (> 1 yard)
 function hasMoved(x1: number, y1: number, x2: number, y2: number): boolean {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
+  const dx = x2 - x1, dy = y2 - y1;
   return Math.sqrt(dx * dx + dy * dy) > 1;
 }
 
-// Shorten the endpoint of a line so it stops `margin` units before (x2, y2)
 function shortenEnd(
   x1: number, y1: number,
   x2: number, y2: number,
   margin: number
 ): { x2: number; y2: number } {
-  const dx = x2 - x1;
-  const dy = y2 - y1;
+  const dx = x2 - x1, dy = y2 - y1;
   const len = Math.sqrt(dx * dx + dy * dy);
-  if (len <= margin) return { x2, y2 }; // too short to shorten
+  if (len <= margin) return { x2, y2 };
   const t = (len - margin) / len;
   return { x2: x1 + dx * t, y2: y1 + dy * t };
 }
 
-// Lighten a hex color by mixing it toward white by `amount` (0–1)
 function lightenColor(hex: string, amount: number): string {
   const n = parseInt(hex.slice(1), 16);
   const r = (n >> 16) & 0xff;
-  const g = (n >> 8) & 0xff;
-  const b = n & 0xff;
+  const g = (n >> 8)  & 0xff;
+  const b =  n        & 0xff;
   const mix = (c: number) => Math.round(c + (255 - c) * amount);
   return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
 }
 
-// Render an arrow as outline + foreground line pair for visual clarity.
-// The outline is slightly wider and lighter. It is trimmed short of the end so
-// it doesn't protrude past the arrowhead. Disc arrows skip the outline entirely.
 function arrowLines(
   key: string,
   x1: number, y1: number, x2: number, y2: number,
@@ -116,17 +149,11 @@ function arrowLines(
       {...extraProps}
     />
   );
+  if (isDisc) return [foreground];
 
-  if (isDisc) {
-    // Disc: no outline, just the foreground line
-    return [foreground];
-  }
-
-  // Shorten outline end by ~1.5 units so it stops behind the arrowhead
-  const outlineEnd = shortenEnd(x1, y1, x2, y2, 1.5);
+  const outlineEnd   = shortenEnd(x1, y1, x2, y2, 1.5);
   const outlineColor = lightenColor(stroke, 0.55);
   const outlineWidth = strokeWidth + 0.6;
-
   return [
     <line
       key={`${key}-outline`}
@@ -134,7 +161,9 @@ function arrowLines(
       stroke={outlineColor}
       strokeWidth={outlineWidth}
       opacity={opacity * 0.8}
-      {...(extraProps.strokeDasharray ? { strokeDasharray: extraProps.strokeDasharray as string } : {})}
+      {...(extraProps.strokeDasharray
+        ? { strokeDasharray: extraProps.strokeDasharray as string }
+        : {})}
     />,
     foreground,
   ];
@@ -143,7 +172,6 @@ function arrowLines(
 // ─── Default staging positions ────────────────────────────────────────────────
 
 export function defaultStepPositions(): StepPositions {
-  // Centre 7 icons (spacing 5) around midpoint 55: 55 - 3*5 = 40 → 40,45,50,55,60,65,70
   const offenseX = [40, 45, 50, 55, 60, 65, 70];
   const defenseX = [40, 45, 50, 55, 60, 65, 70];
   return {
@@ -158,9 +186,12 @@ export function defaultStepPositions(): StepPositions {
 type DragTarget =
   | { team: "offense"; index: number; kind: "player" }
   | { team: "defense"; index: number; kind: "player" }
-  | { team: "disc"; index: 0; kind: "player" }
+  | { team: "disc";    index: 0;      kind: "player" }
   | { team: "offense"; index: number; kind: "branch" }
-  | { team: "defense"; index: number; kind: "branch" };
+  | { team: "defense"; index: number; kind: "branch" }
+  | { kind: "ann-body";  id: string; startX: number; startY: number; mouseX: number; mouseY: number }
+  | { kind: "ann-tail";  id: string }   // dragging arrow origin
+  | { kind: "ann-head";  id: string };  // dragging arrow tip
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -169,31 +200,49 @@ export default function FieldCanvas({
   currentStep,
   mode,
   showTracks = true,
+  annotationTool = null,
+  onAnnotationAdd,
+  onAnnotationMove,
+  onAnnotationDelete,
+  onAnnotationTextEdit,
   onPositionChange,
   onBranchChange,
 }: FieldCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const [drag, setDrag] = useState<DragTarget | null>(null);
+  const [drag, setDrag]             = useState<DragTarget | null>(null);
+  const [hoveredAnn, setHoveredAnn] = useState<string | null>(null);
+  const [editingAnn, setEditingAnn] = useState<string | null>(null);
+  const [editText, setEditText]     = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   const current = steps[currentStep];
-  const prev = currentStep > 0 ? steps[currentStep - 1] : null;
+  const prev    = currentStep > 0 ? steps[currentStep - 1] : null;
 
-  // Convert a client mouse event to SVG coordinate space
+  // Focus text input when edit starts
+  useEffect(() => {
+    if (editingAnn && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingAnn]);
+
+  // ── SVG coordinate helper ────────────────────────────────────────────────
   const clientToSvg = useCallback(
     (clientX: number, clientY: number): { x: number; y: number } => {
       const svg = svgRef.current;
       if (!svg) return { x: 0, y: 0 };
-      const rect = svg.getBoundingClientRect();
+      const rect   = svg.getBoundingClientRect();
       const scaleX = VIEWBOX_W / rect.width;
-      const scaleY = VIEWBOX_H / rect.height;
+      const scaleY = (mode === "view" ? FIELD_H : VIEWBOX_H) / rect.height;
       return {
         x: (clientX - rect.left) * scaleX,
-        y: (clientY - rect.top) * scaleY,
+        y: (clientY - rect.top)  * scaleY,
       };
     },
-    []
+    [mode]
   );
 
+  // ── Mouse events ─────────────────────────────────────────────────────────
   const handleMouseDown = useCallback(
     (target: DragTarget) => (e: React.MouseEvent) => {
       if (mode !== "edit") return;
@@ -208,20 +257,75 @@ export default function FieldCanvas({
     (e: React.MouseEvent<SVGSVGElement>) => {
       if (!drag || mode !== "edit") return;
       const { x, y } = clientToSvg(e.clientX, e.clientY);
+
       if (drag.kind === "branch") {
         onBranchChange?.(drag.team, drag.index, x, y);
-      } else {
+      } else if (drag.kind === "player") {
         onPositionChange?.(drag.team, drag.index, x, y);
+      } else if (drag.kind === "ann-body") {
+        const dx = x - drag.mouseX;
+        const dy = y - drag.mouseY;
+        const ann = current.annotations?.find(a => a.id === drag.id);
+        if (!ann) return;
+        if (ann.type === "text") {
+          onAnnotationMove?.(drag.id, { x: drag.startX + dx, y: drag.startY + dy } as Partial<Annotation>);
+        } else if (ann.type === "arrow") {
+          onAnnotationMove?.(drag.id, {
+            x1: ann.x1 + dx, y1: ann.y1 + dy,
+            x2: ann.x2 + dx, y2: ann.y2 + dy,
+          } as Partial<Annotation>);
+        }
+      } else if (drag.kind === "ann-tail") {
+        onAnnotationMove?.(drag.id, { x1: x, y1: y } as Partial<Annotation>);
+      } else if (drag.kind === "ann-head") {
+        onAnnotationMove?.(drag.id, { x2: x, y2: y } as Partial<Annotation>);
       }
     },
-    [drag, mode, clientToSvg, onPositionChange, onBranchChange]
+    [drag, mode, clientToSvg, onPositionChange, onBranchChange, onAnnotationMove, current]
   );
 
-  const handleMouseUp = useCallback(() => {
-    setDrag(null);
-  }, []);
+  const handleMouseUp = useCallback(() => setDrag(null), []);
 
-  // ─── Arrow rendering ────────────────────────────────────────────────────────
+  // ── SVG click — place annotation in tool mode ─────────────────────────────
+  const handleSvgClick = useCallback(
+    (e: React.MouseEvent<SVGSVGElement>) => {
+      if (mode !== "edit" || !annotationTool) return;
+      // Ignore if we just finished a drag (moved more than a tiny amount)
+      if (drag !== null) return;
+      const { x, y } = clientToSvg(e.clientX, e.clientY);
+      const id = `ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      if (annotationTool.type === "text") {
+        onAnnotationAdd?.({
+          id, type: "text",
+          x, y,
+          text: "Label",
+          color: annotationTool.color,
+        });
+        // Immediately enter edit mode for the new label
+        setEditingAnn(id);
+        setEditText("Label");
+      } else if (annotationTool.type === "arrow") {
+        onAnnotationAdd?.({
+          id, type: "arrow",
+          x1: x, y1: y,
+          x2: x + 8, y2: y,
+          color: annotationTool.color,
+        });
+      }
+    },
+    [mode, annotationTool, drag, clientToSvg, onAnnotationAdd]
+  );
+
+  // ── Commit text edit ──────────────────────────────────────────────────────
+  function commitTextEdit() {
+    if (editingAnn) {
+      onAnnotationTextEdit?.(editingAnn, editText.trim() || "Label");
+    }
+    setEditingAnn(null);
+    setEditText("");
+  }
+
+  // ─── Arrow rendering ──────────────────────────────────────────────────────
 
   function renderArrows() {
     if (!prev) return null;
@@ -231,14 +335,13 @@ export default function FieldCanvas({
 
       for (let s = 1; s <= currentStep; s++) {
         const isCurrent = s === currentStep;
-        // Skip ghost trail steps when tracks are hidden
         if (!isCurrent && !showTracks) continue;
-        const from = steps[s - 1];
-        const to = steps[s];
+        const from    = steps[s - 1];
+        const to      = steps[s];
         const opacity = isCurrent ? 1 : 0.2;
 
         from.offense.forEach((p, i) => {
-          const c = to.offense[i];
+          const c    = to.offense[i];
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
@@ -246,7 +349,8 @@ export default function FieldCanvas({
               COLOR_OFFENSE, 0.8, opacity,
               isCurrent ? "url(#arrow-offense)" : undefined));
           }
-          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
+          if (isCurrent && c.branch
+              && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ao-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
@@ -255,7 +359,7 @@ export default function FieldCanvas({
         });
 
         from.defense.forEach((p, i) => {
-          const c = to.defense[i];
+          const c    = to.defense[i];
           const moved = hasMoved(p.x, p.y, c.x, c.y);
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && moved) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, PLAYER_R + 0.3);
@@ -263,7 +367,8 @@ export default function FieldCanvas({
               COLOR_DEFENSE, 0.8, opacity,
               isCurrent ? "url(#arrow-defense)" : undefined));
           }
-          if (isCurrent && c.branch && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
+          if (isCurrent && c.branch
+              && isOnField(p.x, p.y) && isOnField(c.branch.x, c.branch.y)
               && hasMoved(p.x, p.y, c.branch.x, c.branch.y)) {
             const end = shortenEnd(p.x, p.y, c.branch.x, c.branch.y, PLAYER_R + 0.3);
             arrows.push(...arrowLines(`ad-branch-${s}-${i}`, p.x, p.y, end.x2, end.y2,
@@ -272,8 +377,7 @@ export default function FieldCanvas({
         });
 
         {
-          const p = from.disc;
-          const c = to.disc;
+          const p = from.disc, c = to.disc;
           if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
             const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
             arrows.push(...arrowLines(`adisc-${s}`, p.x, p.y, end.x2, end.y2,
@@ -287,7 +391,7 @@ export default function FieldCanvas({
       return arrows;
     }
 
-    // ── Edit mode: draw only prev → current arrows ──
+    // ── Edit mode ──
     const arrows: React.ReactNode[] = [];
 
     current.offense.forEach((cur, i) => {
@@ -321,8 +425,7 @@ export default function FieldCanvas({
     });
 
     {
-      const p = prev.disc;
-      const c = current.disc;
+      const p = prev.disc, c = current.disc;
       if (isOnField(p.x, p.y) && isOnField(c.x, c.y) && hasMoved(p.x, p.y, c.x, c.y)) {
         const end = shortenEnd(p.x, p.y, c.x, c.y, DISC_R + 0.3);
         arrows.push(...arrowLines("ad-disc", p.x, p.y, end.x2, end.y2,
@@ -333,7 +436,7 @@ export default function FieldCanvas({
     return arrows;
   }
 
-  // ─── Branch dot handles (edit mode only) ────────────────────────────────────
+  // ─── Branch handles (edit mode only) ────────────────────────────────────────
 
   function renderBranchHandles() {
     if (mode !== "edit") return null;
@@ -342,12 +445,10 @@ export default function FieldCanvas({
     current.offense.forEach((p, i) => {
       if (p.branch && isOnField(p.branch.x, p.branch.y)) {
         handles.push(
-          <g
-            key={`bh-o-${i}`}
+          <g key={`bh-o-${i}`}
             transform={`translate(${p.branch.x}, ${p.branch.y})`}
             style={{ cursor: "grab" }}
-            onMouseDown={handleMouseDown({ team: "offense", index: i, kind: "branch" })}
-          >
+            onMouseDown={handleMouseDown({ team: "offense", index: i, kind: "branch" })}>
             <circle r={1.1} fill={COLOR_OFFENSE} opacity={0.7} />
             <circle r={0.5} fill="white" opacity={0.9} />
           </g>
@@ -358,12 +459,10 @@ export default function FieldCanvas({
     current.defense.forEach((p, i) => {
       if (p.branch && isOnField(p.branch.x, p.branch.y)) {
         handles.push(
-          <g
-            key={`bh-d-${i}`}
+          <g key={`bh-d-${i}`}
             transform={`translate(${p.branch.x}, ${p.branch.y})`}
             style={{ cursor: "grab" }}
-            onMouseDown={handleMouseDown({ team: "defense", index: i, kind: "branch" })}
-          >
+            onMouseDown={handleMouseDown({ team: "defense", index: i, kind: "branch" })}>
             <circle r={1.1} fill={COLOR_DEFENSE} opacity={0.7} />
             <circle r={0.5} fill="white" opacity={0.9} />
           </g>
@@ -374,57 +473,266 @@ export default function FieldCanvas({
     return handles;
   }
 
+  // ─── Annotation rendering ────────────────────────────────────────────────────
+
+  function renderAnnotations() {
+    const anns = current.annotations;
+    if (!anns || anns.length === 0) return null;
+
+    return anns.map((ann) => {
+      const color   = ANN_COLOR_MAP[ann.color];
+      const isHover = hoveredAnn === ann.id;
+      const isEdit  = editingAnn === ann.id;
+
+      if (ann.type === "text") {
+        return (
+          <g
+            key={ann.id}
+            transform={`translate(${ann.x}, ${ann.y})`}
+            style={{ cursor: mode === "edit" ? (isEdit ? "text" : "grab") : "default" }}
+            onMouseEnter={mode === "edit" ? () => setHoveredAnn(ann.id) : undefined}
+            onMouseLeave={mode === "edit" ? () => setHoveredAnn(null)   : undefined}
+            onMouseDown={mode === "edit" && !isEdit
+              ? (e) => {
+                  e.preventDefault(); e.stopPropagation();
+                  const { x, y } = clientToSvg(e.clientX, e.clientY);
+                  setDrag({ kind: "ann-body", id: ann.id, startX: ann.x, startY: ann.y, mouseX: x, mouseY: y });
+                }
+              : undefined}
+            onDoubleClick={mode === "edit"
+              ? (e) => { e.stopPropagation(); setEditingAnn(ann.id); setEditText(ann.text); }
+              : undefined}
+          >
+            {/* Hit area */}
+            <rect
+              x={-1} y={-2.8}
+              width={ann.text.length * 1.5 + 2} height={4.2}
+              fill="transparent"
+            />
+            {/* Shadow for legibility */}
+            <text
+              textAnchor="start"
+              dominantBaseline="central"
+              fontSize={3}
+              fontFamily="system-ui, sans-serif"
+              fontWeight="600"
+              fill="black"
+              opacity={0.45}
+              dx={0.25} dy={0.25}
+              style={{ pointerEvents: "none" }}
+            >{ann.text}</text>
+            {/* Main text */}
+            <text
+              textAnchor="start"
+              dominantBaseline="central"
+              fontSize={3}
+              fontFamily="system-ui, sans-serif"
+              fontWeight="600"
+              fill={color}
+              style={{ pointerEvents: "none" }}
+            >{ann.text}</text>
+            {/* Delete button (edit mode, hovered) */}
+            {mode === "edit" && isHover && !isEdit && (
+              <g
+                transform={`translate(${ann.text.length * 1.5 + 2.5}, -1.5)`}
+                style={{ cursor: "pointer" }}
+                onMouseDown={(e) => { e.stopPropagation(); onAnnotationDelete?.(ann.id); }}
+              >
+                <circle r={1.8} fill="#1e293b" opacity={0.85} />
+                <text textAnchor="middle" dominantBaseline="central"
+                  fontSize={2.4} fill="white" fontFamily="system-ui, sans-serif"
+                  style={{ pointerEvents: "none" }}>×</text>
+              </g>
+            )}
+          </g>
+        );
+      }
+
+      if (ann.type === "arrow") {
+        const markerId = `ann-arrow-${ann.id}`;
+        const end      = shortenEnd(ann.x1, ann.y1, ann.x2, ann.y2, 1.2);
+        return (
+          <g
+            key={ann.id}
+            onMouseEnter={mode === "edit" ? () => setHoveredAnn(ann.id) : undefined}
+            onMouseLeave={mode === "edit" ? () => setHoveredAnn(null)   : undefined}
+          >
+            {/* Dynamic arrowhead marker for this annotation's color */}
+            <defs>
+              <marker
+                id={markerId}
+                viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="4" markerHeight="4"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
+              </marker>
+            </defs>
+
+            {/* Invisible wide hit-area line */}
+            <line
+              x1={ann.x1} y1={ann.y1} x2={ann.x2} y2={ann.y2}
+              stroke="transparent" strokeWidth={4}
+              style={{ cursor: mode === "edit" ? "grab" : "default" }}
+              onMouseDown={mode === "edit"
+                ? (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    const { x, y } = clientToSvg(e.clientX, e.clientY);
+                    setDrag({ kind: "ann-body", id: ann.id,
+                      startX: ann.x1, startY: ann.y1,
+                      mouseX: x, mouseY: y });
+                  }
+                : undefined}
+            />
+
+            {/* Arrow line */}
+            <line
+              x1={ann.x1} y1={ann.y1} x2={end.x2} y2={end.y2}
+              stroke={color} strokeWidth={0.9}
+              markerEnd={`url(#${markerId})`}
+              style={{ pointerEvents: "none" }}
+            />
+
+            {/* Delete button at midpoint (hovered) */}
+            {mode === "edit" && isHover && (
+              <g
+                transform={`translate(${(ann.x1 + ann.x2) / 2}, ${(ann.y1 + ann.y2) / 2})`}
+                style={{ cursor: "pointer" }}
+                onMouseDown={(e) => { e.stopPropagation(); onAnnotationDelete?.(ann.id); }}
+              >
+                <circle r={1.8} fill="#1e293b" opacity={0.85} />
+                <text textAnchor="middle" dominantBaseline="central"
+                  fontSize={2.4} fill="white" fontFamily="system-ui, sans-serif"
+                  style={{ pointerEvents: "none" }}>×</text>
+              </g>
+            )}
+
+            {/* Endpoint drag handles */}
+            {mode === "edit" && isHover && (
+              <>
+                <circle
+                  cx={ann.x1} cy={ann.y1} r={1.5}
+                  fill={color} opacity={0.8} style={{ cursor: "crosshair" }}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    setDrag({ kind: "ann-tail", id: ann.id });
+                  }}
+                />
+                <circle
+                  cx={ann.x2} cy={ann.y2} r={1.5}
+                  fill={color} opacity={0.8} style={{ cursor: "crosshair" }}
+                  onMouseDown={(e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    setDrag({ kind: "ann-head", id: ann.id });
+                  }}
+                />
+              </>
+            )}
+          </g>
+        );
+      }
+
+      return null;
+    });
+  }
+
+  // ─── Overlay text editor (HTML, anchored to SVG annotation) ─────────────────
+
+  function renderTextEditor() {
+    if (!editingAnn || !svgRef.current) return null;
+    const ann = current.annotations?.find(a => a.id === editingAnn && a.type === "text") as TextAnnotation | undefined;
+    if (!ann) return null;
+
+    const svg  = svgRef.current;
+    const rect = svg.getBoundingClientRect();
+    const viewH = mode === "view" ? FIELD_H : VIEWBOX_H;
+    const scaleX = rect.width  / VIEWBOX_W;
+    const scaleY = rect.height / viewH;
+
+    const left = rect.left + ann.x * scaleX;
+    const top  = rect.top  + ann.y * scaleY - 12;
+
+    return (
+      <div
+        style={{
+          position: "fixed",
+          left, top,
+          zIndex: 50,
+          background: "rgba(15,23,42,0.92)",
+          border: `1.5px solid ${ANN_COLOR_MAP[ann.color]}`,
+          borderRadius: 6,
+          padding: "2px 6px",
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <input
+          ref={editInputRef}
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === "Escape") {
+              e.preventDefault();
+              commitTextEdit();
+            }
+          }}
+          onBlur={commitTextEdit}
+          style={{
+            background: "transparent",
+            border: "none",
+            outline: "none",
+            color: ANN_COLOR_MAP[ann.color],
+            fontFamily: "system-ui, sans-serif",
+            fontWeight: 600,
+            fontSize: 13,
+            minWidth: 60,
+            maxWidth: 180,
+            width: Math.max(60, editText.length * 8),
+          }}
+        />
+      </div>
+    );
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   const viewH = mode === "view" ? FIELD_H : VIEWBOX_H;
+  const cursor = annotationTool && mode === "edit" ? "crosshair" : "default";
 
   return (
-    <div style={{ width: "100%" }}>
+    <div style={{ width: "100%", position: "relative" }}>
       <svg
         ref={svgRef}
         viewBox={`0 0 ${VIEWBOX_W} ${viewH}`}
         width="100%"
         height="auto"
-        style={{ display: "block", userSelect: "none" }}
+        style={{ display: "block", userSelect: "none", cursor }}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
+        onClick={handleSvgClick}
       >
-        {/* ── Defs: arrowhead markers + highlight glow filter ── */}
+        {/* ── Defs ── */}
         <defs>
-          {/* Player arrowheads */}
           {(
             [
               ["arrow-offense", COLOR_OFFENSE],
               ["arrow-defense", COLOR_DEFENSE],
             ] as const
           ).map(([id, color]) => (
-            <marker
-              key={id}
-              id={id}
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="4"
-              markerHeight="4"
-              orient="auto-start-reverse"
-            >
+            <marker key={id} id={id}
+              viewBox="0 0 10 10" refX="9" refY="5"
+              markerWidth="4" markerHeight="4"
+              orient="auto-start-reverse">
               <path d="M 0 0 L 10 5 L 0 10 z" fill={color} />
             </marker>
           ))}
-          {/* Disc arrowhead — open chevron foreground + outline */}
-          <marker
-            id="arrow-disc"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="4"
-            markerHeight="4"
-            orient="auto-start-reverse"
-          >
-            <path d="M 1 1 L 9 5 L 1 9" fill="none" stroke={COLOR_ARROW_DISC} strokeWidth="1.8" strokeLinejoin="round" />
+          <marker id="arrow-disc"
+            viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="4" markerHeight="4"
+            orient="auto-start-reverse">
+            <path d="M 1 1 L 9 5 L 1 9" fill="none"
+              stroke={COLOR_ARROW_DISC} strokeWidth="1.8" strokeLinejoin="round" />
           </marker>
-          {/* Glow filter for highlighted players */}
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="0.8" result="blur" />
             <feMerge>
@@ -436,120 +744,83 @@ export default function FieldCanvas({
 
         {/* ── Field background ── */}
         <rect x={0} y={0} width={VIEWBOX_W} height={FIELD_H} fill="#3a7d44" />
-
-        {/* ── Perimeter outline ── */}
-        <rect
-          x={0} y={0}
-          width={VIEWBOX_W} height={FIELD_H}
-          fill="none"
-          stroke="white"
-          strokeWidth={0.5}
-        />
-
-        {/* ── End zone lines ── */}
+        <rect x={0} y={0} width={VIEWBOX_W} height={FIELD_H}
+          fill="none" stroke="white" strokeWidth={0.5} />
         <line x1={20} y1={0} x2={20} y2={FIELD_H} stroke="white" strokeWidth={0.5} />
         <line x1={90} y1={0} x2={90} y2={FIELD_H} stroke="white" strokeWidth={0.5} />
-
-        {/* ── Brick marks at (40,20) and (70,20) ── */}
         {[40, 70].map((bx) => (
           <g key={bx}>
-            <line x1={bx - 0.7} y1={20 - 0.7} x2={bx + 0.7} y2={20 + 0.7} stroke="white" strokeWidth={0.4} />
-            <line x1={bx + 0.7} y1={20 - 0.7} x2={bx - 0.7} y2={20 + 0.7} stroke="white" strokeWidth={0.4} />
+            <line x1={bx-0.7} y1={20-0.7} x2={bx+0.7} y2={20+0.7} stroke="white" strokeWidth={0.4} />
+            <line x1={bx+0.7} y1={20-0.7} x2={bx-0.7} y2={20+0.7} stroke="white" strokeWidth={0.4} />
           </g>
         ))}
 
-        {/* ── Staging area (edit mode only) ── */}
+        {/* ── Staging area ── */}
         {mode === "edit" && (
           <>
             <rect x={0} y={FIELD_H} width={VIEWBOX_W} height={VIEWBOX_H - FIELD_H} fill="#1e293b" />
-            <text
-              x={VIEWBOX_W / 2}
-              y={VIEWBOX_H - 1.5}
-              textAnchor="middle"
-              fill="#94a3b8"
-              fontSize={2.2}
-              fontFamily="system-ui, sans-serif"
-            >
+            <text x={VIEWBOX_W / 2} y={VIEWBOX_H - 1.5}
+              textAnchor="middle" fill="#94a3b8" fontSize={2.2}
+              fontFamily="system-ui, sans-serif">
               Drag players onto the field
             </text>
           </>
         )}
 
-        {/* ── Route arrows (rendered below players) ── */}
+        {/* ── Route arrows ── */}
         {renderArrows()}
 
-        {/* ── Branch destination handles (edit mode) ── */}
+        {/* ── Annotations (above arrows, below players) ── */}
+        {renderAnnotations()}
+
+        {/* ── Branch handles ── */}
         {renderBranchHandles()}
 
         {/* ── Offense players ── */}
         {current.offense.map((p, i) => (
-          <g
-            key={`o-${i}`}
+          <g key={`o-${i}`}
             transform={`translate(${p.x}, ${p.y})`}
             style={{
-              cursor: mode === "edit" ? "grab" : "default",
+              cursor: mode === "edit" && !annotationTool ? "grab" : (annotationTool ? "crosshair" : "default"),
               ...(mode === "view" ? { transition: "transform 0.8s ease" } : {}),
             }}
-            onMouseDown={handleMouseDown({ team: "offense", index: i, kind: "player" })}
-          >
-            {/* Highlight ring */}
+            onMouseDown={!annotationTool
+              ? handleMouseDown({ team: "offense", index: i, kind: "player" })
+              : undefined}>
             {p.highlight && (
-              <circle
-                r={HIGHLIGHT_R}
-                fill={COLOR_OFFENSE}
-                opacity={0.35}
+              <circle r={HIGHLIGHT_R} fill={COLOR_OFFENSE} opacity={0.35}
                 filter="url(#glow)"
-                style={mode === "view" ? { animation: "pulse 1.2s ease-in-out infinite" } : undefined}
-              />
+                style={mode === "view" ? { animation: "pulse 1.2s ease-in-out infinite" } : undefined} />
             )}
             <circle r={PLAYER_R} fill={COLOR_OFFENSE} />
-            <text
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill="white"
-              fontSize={1.6}
-              fontWeight="bold"
+            <text textAnchor="middle" dominantBaseline="central"
+              fill="white" fontSize={1.6} fontWeight="bold"
               fontFamily="system-ui, sans-serif"
-              style={{ pointerEvents: "none" }}
-            >
-              {p.label}
-            </text>
+              style={{ pointerEvents: "none" }}>{p.label}</text>
           </g>
         ))}
 
         {/* ── Defense players ── */}
         {current.defense.map((p, i) => (
-          <g
-            key={`d-${i}`}
+          <g key={`d-${i}`}
             transform={`translate(${p.x}, ${p.y})`}
             style={{
-              cursor: mode === "edit" ? "grab" : "default",
+              cursor: mode === "edit" && !annotationTool ? "grab" : (annotationTool ? "crosshair" : "default"),
               ...(mode === "view" ? { transition: "transform 0.8s ease" } : {}),
             }}
-            onMouseDown={handleMouseDown({ team: "defense", index: i, kind: "player" })}
-          >
-            {/* Highlight ring */}
+            onMouseDown={!annotationTool
+              ? handleMouseDown({ team: "defense", index: i, kind: "player" })
+              : undefined}>
             {p.highlight && (
-              <circle
-                r={HIGHLIGHT_R}
-                fill={COLOR_DEFENSE}
-                opacity={0.35}
+              <circle r={HIGHLIGHT_R} fill={COLOR_DEFENSE} opacity={0.35}
                 filter="url(#glow)"
-                style={mode === "view" ? { animation: "pulse 1.2s ease-in-out infinite" } : undefined}
-              />
+                style={mode === "view" ? { animation: "pulse 1.2s ease-in-out infinite" } : undefined} />
             )}
             <circle r={PLAYER_R} fill={COLOR_DEFENSE} />
-            <text
-              textAnchor="middle"
-              dominantBaseline="central"
-              fill="white"
-              fontSize={1.6}
-              fontWeight="bold"
+            <text textAnchor="middle" dominantBaseline="central"
+              fill="white" fontSize={1.6} fontWeight="bold"
               fontFamily="system-ui, sans-serif"
-              style={{ pointerEvents: "none" }}
-            >
-              {p.label}
-            </text>
+              style={{ pointerEvents: "none" }}>{p.label}</text>
           </g>
         ))}
 
@@ -557,16 +828,20 @@ export default function FieldCanvas({
         <g
           transform={`translate(${current.disc.x}, ${current.disc.y})`}
           style={{
-            cursor: mode === "edit" ? "grab" : "default",
+            cursor: mode === "edit" && !annotationTool ? "grab" : (annotationTool ? "crosshair" : "default"),
             ...(mode === "view" ? { transition: "transform 0.8s ease" } : {}),
           }}
-          onMouseDown={handleMouseDown({ team: "disc", index: 0, kind: "player" })}
-        >
+          onMouseDown={!annotationTool
+            ? handleMouseDown({ team: "disc", index: 0, kind: "player" })
+            : undefined}>
           <circle r={DISC_R} fill="white" stroke={COLOR_DISC_STROKE} strokeWidth={0.5} />
         </g>
       </svg>
 
-      {/* ── Notes panel (view mode only) — always rendered to prevent layout shift ── */}
+      {/* ── Floating text editor overlay ── */}
+      {renderTextEditor()}
+
+      {/* ── Notes panel (view mode) ── */}
       {mode === "view" && (
         <div style={{
           background: "#f8fafc",
@@ -578,7 +853,7 @@ export default function FieldCanvas({
           lineHeight: 1.5,
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
-          minHeight: "42px",       // fixed height — controls never shift
+          minHeight: "42px",
         }}>
           {current.note ? (
             <>
@@ -591,7 +866,6 @@ export default function FieldCanvas({
         </div>
       )}
 
-      {/* Pulse keyframe injected once */}
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 0.35; transform: scale(1); }
